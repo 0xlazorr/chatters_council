@@ -1,0 +1,21 @@
+# Environment secrets
+.env
+*.env
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+
+# Local logs & queues
+*.log
+data/signals_queue.json

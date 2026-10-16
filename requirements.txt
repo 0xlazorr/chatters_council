@@ -1,0 +1,22 @@
+# Multi-Agent Telegram Council Requirements
+# Compatible with Python 3.10+ on Linux / macOS / Windows
+
+# Microsoft AutoGen & AgentChat Ecosystem
+pyautogen>=0.10.0
+autogen-agentchat>=0.7.5
+autogen-ext>=0.7.5
+autogen-core>=0.7.5
+
+# Telegram Bot API Framework
+python-telegram-bot>=21.0
+
+# LLM Provider SDKs
+openai>=1.30.0
+anthropic>=0.30.0
+tiktoken>=0.7.0
+
+# Utilities, Async HTTP & Environment
+python-dotenv>=1.0.0
+aiohttp>=3.9.0
+requests>=2.31.0
+pydantic>=2.7.0
