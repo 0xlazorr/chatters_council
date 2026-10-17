@@ -291,13 +291,22 @@ class CouncilCommandHandler(CommandHandler):
                 if cmd_name not in self.commands:
                     return None
 
+                bot_username = message.get_bot().username.lower() if message.get_bot() else ""
+                is_private = bool(update.effective_chat and update.effective_chat.type == "private")
+
                 # If command has a target username (e.g. /menu@claudetalkbbot or /menu@gpttalkbbot)
                 if len(command_parts) > 1:
                     target_bot = command_parts[1].lower()
                     if (
-                        target_bot != message.get_bot().username.lower()
+                        target_bot != bot_username
                         and target_bot not in self.COUNCIL_BOT_USERNAMES
                     ):
+                        return None
+                elif not is_private:
+                    # In group chats, if plain command (/menu without @bot),
+                    # ONLY the lead bot (Claude) responds so the group isn't spammed by all 5 bots!
+                    lead_bot_user = getattr(config, "LEAD_BOT_USERNAME", "claudetalkbbot").lower()
+                    if bot_username != lead_bot_user:
                         return None
 
                 if not self._check_correct_args(args):
@@ -1847,6 +1856,14 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not update.message or not update.message.text:
         return
 
+    bot_username = update.get_bot().username.lower() if update.get_bot() else ""
+    is_private = bool(update.effective_chat and update.effective_chat.type == "private")
+    lead_bot_user = getattr(config, "LEAD_BOT_USERNAME", "claudetalkbbot").lower()
+
+    # In group chats, only lead bot handles text to avoid 5 duplicate responses
+    if not is_private and bot_username != lead_bot_user:
+        return
+
     text = update.message.text.strip()
     chat_id = check_and_record_chat_id(update)
 
@@ -2820,74 +2837,8 @@ async def position_exit_watcher_loop(lead_bot: Bot):
             logger.debug(f"Position exit watcher iteration error: {e}")
 
 
-async def post_init(application: Application):
-    """Post initialization routine: sync display names and initialize orchestrator."""
-    global council
-    active_agents = config.get_active_agents()
-    if not active_agents:
-        logger.error("No active agents configured with valid Telegram bot tokens!")
-        return
-
-    # Sync display names via setMyName
-    await sync_bot_display_names(active_agents)
-
-    # Instantiate AutoGen Council Orchestrator
-    council = CouncilOrchestrator(active_agents)
-    logger.info(f"🏛️ Council Orchestrator ready with {len(active_agents)} AI members.")
-
-    # Start dedicated background position exit monitor
-    asyncio.create_task(position_exit_watcher_loop(lead_bot=application.bot))
-
-    # Auto-resume persistent Autopilot if previously enabled
-    if autopilot.enabled and config.GROUP_CHAT_ID:
-        logger.info("Resuming persistent Autopilot scanning loop...")
-        await autopilot.start(chat_id=config.GROUP_CHAT_ID, lead_bot=application.bot, council_orchestrator=council)
-
-    # Ensure bot commands are not locked to @claudetalkbbot in Telegram group chats
-    for scope in (BotCommandScopeDefault(), BotCommandScopeAllGroupChats(), BotCommandScopeAllChatAdministrators()):
-        try:
-            await application.bot.delete_my_commands(scope=scope)
-            logger.info(f"✅ Cleared scoped bot commands for {scope.__class__.__name__} so commands remain universal (/menu).")
-        except Exception as ce:
-            logger.debug(f"Could not clear commands for scope {scope}: {ce}")
-
-
-def main():
-    """Main application runner."""
-    active_agents = config.get_active_agents()
-    if not active_agents:
-        print("❌ Error: No agents configured with Telegram Bot tokens in config.py or .env!")
-        sys.exit(1)
-
-    listener_idx = min(config.LISTENER_BOT_INDEX, len(active_agents) - 1)
-    listener_agent = active_agents[listener_idx]
-
-    print("\n" + "=" * 65)
-    print("🏛️ MULTI-AGENT TELEGRAM GROUP CHAT SYSTEM STARTING")
-    print("=" * 65)
-    print(f"📡 Listener / Poller Bot : {listener_agent.name} (@{listener_agent.username})")
-    print(f"👥 Active Council Agents : {len(active_agents)}")
-    print(f"🧠 LLM Engine Backend    : {'OpenRouter Unified Engine' if config.OPENROUTER_API_KEY else 'Simulated Testing Mode (Add OPENROUTER_API_KEY for live AI)'}")
-    print(f"📍 Target Group Chat ID : {config.GROUP_CHAT_ID or 'Auto-detect on first message'}")
-    print(f"🐕 MSniffer Dispatch Mode: {config.MSNIFFER_DISPATCH_MODE.upper()}")
-    print("=" * 65 + "\n")
-
-    # Build python-telegram-bot application with listener bot token and robust network timeouts
-    ptb_request = HTTPXRequest(
-        connection_pool_size=16,
-        connect_timeout=30.0,
-        read_timeout=60.0,
-        write_timeout=30.0,
-        pool_timeout=30.0,
-    )
-    application = (
-        ApplicationBuilder()
-        .token(listener_agent.token)
-        .request(ptb_request)
-        .post_init(post_init)
-        .build()
-    )
-
+def register_handlers(application: Application):
+    """Registers unified command, callback, and message handlers on an application instance."""
     # 1. Primary Clean Command Handlers (Universally handles /menu, /mode, etc. across any bot or plain /cmd)
     application.add_handler(CouncilCommandHandler(["menu", "start", "dashboard"], menu_command))
     application.add_handler(CouncilCommandHandler(["mode", "strat", "strategy", "exitmode"], exitmode_command))
@@ -2923,9 +2874,111 @@ def main():
     # 3. Message handler for raw CA postings with flags or interactive menus
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
 
-    # Run polling loop
-    logger.info(f"Starting long polling on @{listener_agent.username}...")
-    application.run_polling(drop_pending_updates=True)
+
+async def run_council():
+    """Runs all council bots concurrently with full interactive command and deliberation support."""
+    global council
+    active_agents = config.get_active_agents()
+    if not active_agents:
+        logger.error("No active agents configured with valid Telegram bot tokens!")
+        return
+
+    # Sync display names via setMyName
+    await sync_bot_display_names(active_agents)
+
+    # Instantiate AutoGen Council Orchestrator
+    council = CouncilOrchestrator(active_agents)
+    logger.info(f"🏛️ Council Orchestrator ready with {len(active_agents)} AI members.")
+
+    ptb_request = HTTPXRequest(
+        connection_pool_size=16,
+        connect_timeout=30.0,
+        read_timeout=60.0,
+        write_timeout=30.0,
+        pool_timeout=30.0,
+    )
+
+    apps: List[Tuple[config.AgentConfig, Application]] = []
+    for agent in active_agents:
+        if not agent.token:
+            continue
+        app = (
+            ApplicationBuilder()
+            .token(agent.token)
+            .request(ptb_request)
+            .build()
+        )
+        register_handlers(app)
+        apps.append((agent, app))
+
+    lead_agent, lead_app = apps[0]
+
+    # Start dedicated background position exit monitor
+    asyncio.create_task(position_exit_watcher_loop(lead_bot=lead_app.bot))
+
+    # Auto-resume persistent Autopilot if previously enabled
+    if autopilot.enabled and config.GROUP_CHAT_ID:
+        logger.info("Resuming persistent Autopilot scanning loop...")
+        await autopilot.start(chat_id=config.GROUP_CHAT_ID, lead_bot=lead_app.bot, council_orchestrator=council)
+
+    # Clear scoped commands
+    for scope in (BotCommandScopeDefault(), BotCommandScopeAllGroupChats(), BotCommandScopeAllChatAdministrators()):
+        try:
+            await lead_app.bot.delete_my_commands(scope=scope)
+            logger.info(f"✅ Cleared scoped bot commands for {scope.__class__.__name__} so commands remain universal (/menu).")
+        except Exception as ce:
+            logger.debug(f"Could not clear commands for scope {scope}: {ce}")
+
+    # Start polling on all council applications in parallel
+    for agent, app in apps:
+        try:
+            await app.initialize()
+            await app.start()
+            await app.updater.start_polling(drop_pending_updates=False)
+            logger.info(f"🚀 Polling active for council bot: {agent.name} (@{agent.username})")
+        except Exception as e:
+            logger.error(f"Failed to start polling on {agent.name} (@{agent.username}): {e}")
+
+    logger.info(f"🏛️ Multi-Agent Council listening across all {len(apps)} bots simultaneously.")
+
+    # Keep loop running until interrupted
+    stop_event = asyncio.Event()
+    try:
+        await stop_event.wait()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        logger.info("Shutting down council bots...")
+    finally:
+        for agent, app in apps:
+            try:
+                await app.updater.stop()
+                await app.stop()
+                await app.shutdown()
+            except Exception:
+                pass
+
+
+def main():
+    """Main application runner."""
+    active_agents = config.get_active_agents()
+    if not active_agents:
+        print("❌ Error: No agents configured with Telegram Bot tokens in config.py or .env!")
+        sys.exit(1)
+
+    print("\n" + "=" * 65)
+    print("🏛️ MULTI-AGENT TELEGRAM GROUP CHAT SYSTEM STARTING")
+    print("=" * 65)
+    print(f"👥 Active Council Agents : {len(active_agents)}")
+    for a in active_agents:
+        print(f"   • {a.name:12} (@{a.username})")
+    print(f"🧠 LLM Engine Backend    : {'OpenRouter Unified Engine' if config.OPENROUTER_API_KEY else 'Simulated Testing Mode'}")
+    print(f"📍 Target Group Chat ID : {config.GROUP_CHAT_ID or 'Auto-detect on first message'}")
+    print(f"🐕 MSniffer Dispatch Mode: {config.MSNIFFER_DISPATCH_MODE.upper()}")
+    print("=" * 65 + "\n")
+
+    try:
+        asyncio.run(run_council())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Council process terminated.")
 
 
 if __name__ == "__main__":
