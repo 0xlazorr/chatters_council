@@ -235,7 +235,57 @@ The full multi-agent institutional pipeline:
 
 ---
 
-### 5. `/mood <mood_type>` — Council Mood & Personality Switcher
+### 5. Manual Contract Address (CA) & Flag Triggers
+You can trigger council actions simply by **pasting any Solana CA or DEX link** into the group chat:
+
+```text
+# Launch Full DVE Pipeline directly with a flag:
+DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 -dve
+
+# Launch Vote & Execute with custom 0.5 SOL amount:
+https://pump.fun/coin/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R --exe -a 0.5
+
+# Launch Formal Vote with ruthless mood:
+https://dexscreener.com/solana/7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU -vot -m ruthless
+
+# Add CA to autonomous Autopilot queue:
+DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 --auto
+```
+
+> [!TIP]
+> **Bare CA Posting (Zero Typing)**:
+> If you paste a raw CA with **no flags**, the bot will immediately reply with an interactive Telegram message containing **1-click inline buttons**:
+> `[ 🚀 Full DVE Pipeline ]  [ ⚡ Vote & Execute ]`
+> `[ 🗳️ Vote Only ]         [ 🎙️ Debate Only ]`
+> `[ 🤖 Toggle Autopilot ]`
+> Tap any button to launch that operation immediately!
+
+---
+
+### 6. `/auto` (Autonomous Autopilot Stream Trading)
+Operates continuously in the background **without requiring any human input**:
+- Scans live breakout & trending Solana tokens from DexScreener every 90 seconds.
+- Convenes the 5 AI council bots to debate and vote on each candidate.
+- Automatically executes approved trades against Market Sniffer via HTTP webhook (`http://127.0.0.1:8088/trade`).
+- **Automated Treasury Guard**: Periodically checks your execution wallet. If SOL drops below your trade size, Autopilot **automatically halts itself** and posts an alert in the group to protect your account.
+
+```text
+/auto on       # Start autonomous loop
+/auto off      # Stop autonomous loop
+/auto status   # View live scan cycles, tokens evaluated, and trade approvals
+```
+
+---
+
+### 7. `/wallet` — Execution Treasury & Live SOL Balance
+Displays your Market Sniffer execution wallet address, live SOL balance, and Solscan link directly inside Telegram:
+```text
+/wallet
+```
+
+---
+
+### 8. `/mood <mood_type>` — Council Mood & Personality Switcher
 Adjusts the collective perspective and debate style:
 - `/mood analytical`: Balanced, data-driven, objective metrics (default).
 - `/mood skeptical`: Hyper-vigilant, actively seeks out honeypots and rug-pulls.
@@ -246,11 +296,11 @@ Adjusts the collective perspective and debate style:
 
 ---
 
-### 6. Administrative & Utility Commands
+### 9. Administrative & Utility Commands
 - `/status`: View active council lineup, current mood, group ID, and LLM backend.
 - `/setnames`: Triggers `setMyName` to re-sync all 5 bot display names to `{AI}talks`.
 - `/help`: Detailed command cheat sheet.
-- `/cancel` or `/stop`: Abort any currently running debate or vote.
+- `/cancel` or `/stop`: Abort any currently running debate, vote, or active autopilot.
 
 ---
 

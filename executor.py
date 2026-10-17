@@ -100,6 +100,31 @@ class MSnifferExecutor:
     """Dispatches consensus execution commands to the external Market Sniffer crypto bot."""
 
     @classmethod
+    async def get_wallet_status(cls) -> Dict[str, Any]:
+        """Queries Market Sniffer's health endpoint to check wallet address and live SOL balance."""
+        url = "http://127.0.0.1:8088/health"
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=4.0)) as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return {
+                            "online": True,
+                            "wallet": data.get("execution_wallet", ""),
+                            "sol_balance": float(data.get("sol_balance", 0.0) or 0.0),
+                            "execution_user_id": data.get("execution_user_id", 0),
+                        }
+        except Exception as e:
+            logger.debug(f"Could not connect to Market Sniffer health endpoint ({url}): {e}")
+
+        return {
+            "online": False,
+            "wallet": "Unavailable",
+            "sol_balance": 0.0,
+            "execution_user_id": 0,
+        }
+
+    @classmethod
     async def execute_consensus(
         cls,
         prompt: str,
@@ -111,7 +136,8 @@ class MSnifferExecutor:
     ) -> ExecutionResult:
         """
         Entry point for executing approved council consensus.
-        Dispatches via Webhook, Telegram, or Local IPC according to config.
+        Dispatches via Webhook or Telegram according to config.
+        Includes automated wallet balance check to protect treasury.
         """
         start_time = time.time()
         mint, action, amount, symbol = SignalExtractor.extract(prompt, consensus_text)
@@ -126,6 +152,27 @@ class MSnifferExecutor:
                 duration_seconds=time.time() - start_time,
                 dispatch_mode=config.MSNIFFER_DISPATCH_MODE,
             )
+
+        # Pre-execution treasury check: verify wallet has sufficient SOL
+        wallet_info = await cls.get_wallet_status()
+        if wallet_info.get("online") and action == "BUY":
+            sol_bal = wallet_info.get("sol_balance", 0.0)
+            if sol_bal < amount:
+                wallet_addr = wallet_info.get("wallet", "N/A")
+                return ExecutionResult(
+                    success=False,
+                    action=action,
+                    mint=mint,
+                    amount=amount,
+                    message=(
+                        f"Execution halted: Insufficient SOL balance in wallet {wallet_addr[:6]}...{wallet_addr[-4:]} "
+                        f"(Available: {sol_bal:.4f} SOL, Required: {amount:.2f} SOL). "
+                        f"Please fund the wallet to execute trades."
+                    ),
+                    duration_seconds=time.time() - start_time,
+                    dispatch_mode=config.MSNIFFER_DISPATCH_MODE,
+                    raw_response=wallet_info,
+                )
 
         reason = (
             f"Council Consensus PASSED ({yes_count}/{total_votes} YES, "

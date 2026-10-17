@@ -28,8 +28,9 @@ socket.getaddrinfo = _getaddrinfo_ipv4_pref
 import urllib.request
 import urllib.parse
 import json
+import re
 
-from telegram import Bot, Update
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.request import HTTPXRequest
 from telegram.ext import (
@@ -38,12 +39,14 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 
 import config
 from agents import CouncilOrchestrator
-from executor import MSnifferExecutor, format_execution_announcement
+from executor import MSnifferExecutor, SignalExtractor, format_execution_announcement
+from autopilot import autopilot
 
 # Configure Logging
 logging.basicConfig(
@@ -229,30 +232,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📖 <b>AI Council Command Reference</b>\n"
         "───────────────────────────────\n\n"
-        "<b>🗣️ Operational Modes:</b>\n"
-        "• <code>/deb &lt;prompt&gt;</code>\n"
-        "  <i>Debate Mode:</i> Agents engage in a multi-turn discussion, challenging each other's points.\n"
-        "  <i>Example:</i> <code>/deb Is Solana infrastructure mature enough for high-frequency trading?</code>\n\n"
-        "• <code>/vot &lt;prompt&gt;</code>\n"
-        "  <i>Vote Mode:</i> Agents state their reasoning in 2-3 sentences and cast formal YES/NO votes. "
-        "The system tallies and announces final consensus.\n"
-        "  <i>Example:</i> <code>/vot Approve 0.5 SOL allocation to pump.fun breakout token?</code>\n\n"
-        "• <code>/exe &lt;prompt&gt;</code>\n"
-        "  <i>Vote & Execute Mode:</i> Agents vote on a proposed contract address or task. If majority "
-        "consensus passes, the MSniffer crypto bot is triggered automatically.\n"
-        "  <i>Example:</i> <code>/exe Buy 0.25 SOL of DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263</code>\n\n"
-        "• <code>/dve &lt;prompt&gt;</code>\n"
-        "  <i>Debate, Vote & Execute Mode:</i> The complete institutional pipeline: full debate first, "
-        "followed by structured voting, followed by automatic execution if approved.\n"
-        "  <i>Example:</i> <code>/dve Evaluate DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 and buy 0.5 SOL if safe</code>\n\n"
+        "<b>🗣️ Operational Modes (Slash Commands):</b>\n"
+        "• <code>/deb &lt;prompt&gt;</code> - Multi-turn debate across the 5 models\n"
+        "• <code>/vot &lt;prompt&gt;</code> - Formal vote with rationale & consensus tally\n"
+        "• <code>/exe &lt;prompt&gt;</code> - Vote & Execute: consensus triggers Market Sniffer on Solana\n"
+        "• <code>/dve &lt;prompt&gt;</code> - Full Pipeline: Debate ➔ Vote ➔ Execute\n\n"
+        "<b>🪙 Manual Contract Address (CA) & Flag Triggers:</b>\n"
+        "You can simply paste a Solana CA or DEX link into the group chat with flags:\n"
+        "• <code>&lt;CA&gt; -dve</code> - Instantly launches Full DVE Pipeline\n"
+        "• <code>&lt;CA&gt; -exe</code> - Instantly launches Vote & Execute\n"
+        "• <code>&lt;CA&gt; -vot</code> - Instantly launches Formal Vote\n"
+        "• <code>&lt;CA&gt; -deb</code> - Instantly launches Debate\n"
+        "• <code>&lt;CA&gt; -a 0.5</code> - Sets custom trade amount to 0.5 SOL\n"
+        "• <code>&lt;CA&gt; -m ruthless</code> - Overrides mood for this evaluation\n"
+        "<i>💡 Tip: Posting a bare CA with NO flags brings up interactive 1-click buttons!</i>\n\n"
+        "<b>🤖 Autonomous Autopilot Stream Trading:</b>\n"
+        "• <code>/auto on</code> - Starts autonomous loop (scans breakout tokens, debates, votes & trades)\n"
+        "• <code>/auto off</code> - Halts autonomous loop\n"
+        "• <code>/auto status</code> - Live statistics (cycles, tokens evaluated, approvals)\n"
+        "<i>🛡️ Safety Guard: Autopilot automatically halts if wallet SOL drops below minimum!</i>\n\n"
+        "<b>💳 Treasury & Wallet:</b>\n"
+        "• <code>/wallet</code> - View Market Sniffer execution wallet pubkey & live SOL balance\n\n"
         "<b>🎭 Personality & Moods:</b>\n"
-        "• <code>/mood &lt;mood_type&gt;</code>\n"
-        "  Available: <code>analytical</code>, <code>skeptical</code>, <code>aggressive</code>, "
-        "<code>conservative</code>, <code>ruthless</code>, <code>contrarian</code>\n\n"
+        "• <code>/mood &lt;type&gt;</code> (analytical, skeptical, aggressive, conservative, ruthless, contrarian)\n\n"
         "<b>⚙️ Management & Utility:</b>\n"
-        "• <code>/status</code> - Display active models, mood, and connectivity\n"
+        "• <code>/status</code> - Display active models, autopilot state, and endpoints\n"
         "• <code>/setnames</code> - Re-sync bot display names to {AI}talks pattern\n"
-        "• <code>/cancel</code> - Abort any active council session"
+        "• <code>/cancel</code> - Abort any active council session or autopilot"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -262,19 +268,22 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = check_and_record_chat_id(update)
     active_agents = config.get_active_agents()
 
-    backend_desc = "OpenRouter Unified" if config.OPENROUTER_API_KEY else "Native Provider API Keys"
-    if not config.OPENROUTER_API_KEY and not config.OPENAI_API_KEY and not config.ANTHROPIC_API_KEY:
-        backend_desc = "Simulated Fallback Mode (No LLM keys in .env)"
+    backend_desc = "OpenRouter Unified Engine" if config.OPENROUTER_API_KEY else "Simulated Fallback Mode"
+    wallet_info = await MSnifferExecutor.get_wallet_status()
+    sol_bal = wallet_info.get("sol_balance", 0.0)
+    wallet_addr = wallet_info.get("wallet", "Unavailable")
 
     lines = [
         "🏛️ <b>AI COUNCIL SYSTEM STATUS</b>",
         "───────────────────────────────",
-        f"🤖 <b>Active Agents:</b> <code>{len(active_agents)}/15</code>",
+        f"🤖 <b>Council Agents:</b> <code>5/5 Active</code>",
         f"🎭 <b>Current Mood:</b> <code>{council.current_mood.upper() if council else 'ANALYTICAL'}</code>",
         f"🧠 <b>LLM Backend:</b> <code>{backend_desc}</code>",
+        f"🤖 <b>Autopilot Loop:</b> <code>{'RUNNING 🟢' if autopilot.is_running else 'STOPPED ⚪'}</code>",
+        f"💳 <b>Wallet SOL:</b> <code>{sol_bal:.4f} SOL</code> ({wallet_addr[:6]}...{wallet_addr[-4:] if len(wallet_addr) > 10 else ''})",
         f"📍 <b>Group Chat ID:</b> <code>{config.GROUP_CHAT_ID or chat_id}</code>",
         f"⚡ <b>Consensus Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}%</code>",
-        f"🐕 <b>MSniffer Mode:</b> <code>{config.MSNIFFER_DISPATCH_MODE.upper()}</code>",
+        f"🐕 <b>MSniffer Endpoint:</b> <code>{config.MSNIFFER_WEBHOOK_URL}</code>",
         "",
         "<b>Agent Roster:</b>",
     ]
@@ -284,6 +293,89 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines.append("───────────────────────────────")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays Market Sniffer execution wallet pubkey and live SOL balance."""
+    chat_id = check_and_record_chat_id(update)
+    wallet_info = await MSnifferExecutor.get_wallet_status()
+
+    is_online = wallet_info.get("online", False)
+    status_icon = "🟢 Online" if is_online else "🔴 Offline (Start with 'bots start sniffer')"
+    pubkey = wallet_info.get("wallet", "Unavailable")
+    sol_bal = wallet_info.get("sol_balance", 0.0)
+
+    solscan_url = f"https://solscan.io/account/{pubkey}" if pubkey and pubkey != "Unavailable" else ""
+
+    lines = [
+        "💳 <b>COUNCIL EXECUTION WALLET STATUS</b>",
+        "───────────────────────────────",
+        f"🐕 <b>Market Sniffer:</b> {status_icon}",
+        f"🔑 <b>Public Key:</b> <code>{pubkey}</code>",
+        f"💰 <b>SOL Balance:</b> <code>{sol_bal:.4f} SOL</code>",
+        f"🎯 <b>Default Buy Size:</b> <code>{config.DEFAULT_TRADE_AMOUNT_SOL:.2f} SOL</code>",
+        f"🤖 <b>Autopilot State:</b> <code>{'ACTIVE 🟢' if autopilot.is_running else 'STOPPED ⚪'}</code>",
+    ]
+
+    if solscan_url:
+        lines.append(f"🔗 <a href='{solscan_url}'>View Wallet on Solscan</a>")
+
+    lines.append("───────────────────────────────")
+    if is_online and sol_bal < config.DEFAULT_TRADE_AMOUNT_SOL:
+        lines.append(
+            f"⚠️ <i>Warning: Balance is below default trade amount ({config.DEFAULT_TRADE_AMOUNT_SOL} SOL). "
+            f"Deposit SOL to enable automated trade execution.</i>"
+        )
+
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def autopilot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles /autopilot [on|off|status] (or /auto)."""
+    auth, reason = is_authorized_admin(update)
+    if not auth:
+        await update.message.reply_text(f"⛔ {reason}")
+        return
+
+    chat_id = check_and_record_chat_id(update)
+    args = context.args or []
+    subcmd = args[0].strip().lower() if args else "status"
+
+    lead_bot = council.broadcaster.get_bot(council.agents_config[0].name) if council else None
+    if not lead_bot:
+        await update.message.reply_text("❌ Council Orchestrator is not ready.")
+        return
+
+    if subcmd in ("on", "start", "run"):
+        success, msg = await autopilot.start(chat_id=chat_id, lead_bot=lead_bot, council_orchestrator=council)
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    elif subcmd in ("off", "stop", "halt"):
+        msg = await autopilot.stop()
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    else:
+        # Status
+        stats = autopilot.get_status()
+        st_badge = "🟢 RUNNING (Scanning & Evaluating)" if stats["is_running"] else "⚪ STOPPED (Idle)"
+        wallet_info = await MSnifferExecutor.get_wallet_status()
+        sol_bal = wallet_info.get("sol_balance", 0.0)
+
+        lines = [
+            "🤖 <b>AI COUNCIL AUTOPILOT STATUS</b>",
+            "───────────────────────────────",
+            f"⚡ <b>State:</b> {st_badge}",
+            f"⏱️ <b>Scan Interval:</b> <code>{stats['scan_interval']}s</code>",
+            f"🔄 <b>Cycles Completed:</b> <code>{stats['cycles']}</code>",
+            f"🔍 <b>Tokens Evaluated:</b> <code>{stats['evaluated_count']}</code>",
+            f"✅ <b>Approved:</b> <code>{stats['approved']}</code>",
+            f"❌ <b>Rejected:</b> <code>{stats['rejected']}</code>",
+            f"🚀 <b>Trades Dispatched:</b> <code>{stats['executed']}</code>",
+            f"💰 <b>Wallet SOL:</b> <code>{sol_bal:.4f} SOL</code>",
+            "───────────────────────────────",
+            "<b>Controls:</b>",
+            "• <code>/auto on</code> - Start autonomous loop",
+            "• <code>/auto off</code> - Halt autonomous loop",
+        ]
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 async def mood_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,24 +421,32 @@ async def setnames_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancels active operation if stuck."""
+    """Cancels active operation or autopilot if running."""
     global is_busy, active_task_name
     auth, reason = is_authorized_admin(update)
     if not auth:
         await update.message.reply_text(f"⛔ {reason}")
         return
 
+    msgs = []
+    if autopilot.is_running:
+        ap_msg = await autopilot.stop()
+        msgs.append(ap_msg)
+
     if is_busy:
         is_busy = False
         old_task = active_task_name
         active_task_name = ""
-        await update.message.reply_text(f"🛑 Cancelled active session: <b>{old_task}</b>", parse_mode=ParseMode.HTML)
+        msgs.append(f"🛑 Cancelled active session: <b>{old_task}</b>")
+
+    if msgs:
+        await update.message.reply_text("\n".join(msgs), parse_mode=ParseMode.HTML)
     else:
-        await update.message.reply_text("ℹ️ No active session is currently running.")
+        await update.message.reply_text("ℹ️ No active council session or autopilot is currently running.")
 
 
 # =============================================================================
-# 4. OPERATIONAL PIPELINE COMMANDS (/deb, /vot, /exe, /dve)
+# 4. UNIFIED PIPELINE ENGINE & COMMAND DELEGATORS
 # =============================================================================
 
 def extract_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -366,297 +466,433 @@ def extract_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
     return ""
 
 
+async def execute_council_session(
+    chat_id: int,
+    prompt: str,
+    mode: str,
+    reply_to_id: Optional[int] = None,
+    mood_override: Optional[str] = None,
+) -> bool:
+    """
+    Centralized execution engine for all Council modes (debate, vote, execute, dve).
+    Used by slash commands, manual CA postings with flags, and inline keyboard clicks.
+    """
+    global is_busy, active_task_name
+
+    if not council:
+        logger.error("Council orchestrator not initialized.")
+        return False
+
+    lead_bot = council.broadcaster.get_bot(council.agents_config[0].name)
+
+    if is_busy:
+        if lead_bot:
+            await lead_bot.send_message(
+                chat_id=chat_id,
+                text=f"⏳ The council is currently busy with: <b>{active_task_name}</b>. Please wait or use /cancel.",
+                parse_mode=ParseMode.HTML,
+            )
+        return False
+
+    old_mood = council.current_mood
+    if mood_override and mood_override in config.MOOD_PROMPTS:
+        council.set_mood(mood_override)
+
+    is_busy = True
+    active_task_name = f"{mode.upper()}: {prompt[:30]}..."
+
+    try:
+        if mode == "debate":
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=(
+                        f"🎙️ <b>AI COUNCIL DEBATE COMMENCING</b>\n"
+                        f"───────────────────────────────\n"
+                        f"📌 <b>Topic:</b> <i>{html.escape(prompt)}</i>\n"
+                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
+                        f"👥 <b>Active Debaters:</b> {len(council.agents_config)}\n"
+                        f"───────────────────────────────"
+                    ),
+                )
+            success = await council.run_debate(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
+            if success and lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text="🏁 <b>Debate Concluded.</b> To hold a formal vote, use <code>/vot &lt;prompt&gt;</code> or <code>/exe</code>.",
+                )
+            return success
+
+        elif mode in ("vote", "vot"):
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=(
+                        f"🗳️ <b>FORMAL COUNCIL VOTE CONVENED</b>\n"
+                        f"───────────────────────────────\n"
+                        f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
+                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
+                        f"⚖️ <b>Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}% Majority</code>\n"
+                        f"───────────────────────────────\n"
+                        f"<i>Each council member will now state their rationale and cast an official vote...</i>"
+                    ),
+                )
+            vote_summary = await council.run_vote(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=vote_summary.summary_text,
+                )
+            return vote_summary.consensus_passed
+
+        elif mode in ("execute", "exe"):
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=(
+                        f"⚡ <b>COUNCIL VOTE & EXECUTE SESSION</b>\n"
+                        f"───────────────────────────────\n"
+                        f"📌 <b>Target Task:</b> <i>{html.escape(prompt)}</i>\n"
+                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
+                        f"🐕 <b>Execution Bridge:</b> <code>Market Sniffer (@Msnifferbot)</code>\n"
+                        f"───────────────────────────────\n"
+                        f"<i>Voting commenced. If majority consensus passes, task will execute instantly.</i>"
+                    ),
+                )
+            vote_summary = await council.run_vote(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=vote_summary.summary_text,
+                )
+            if vote_summary.consensus_passed:
+                exec_res = await MSnifferExecutor.execute_consensus(
+                    prompt=prompt,
+                    consensus_text=vote_summary.summary_text,
+                    yes_count=vote_summary.yes_count,
+                    total_votes=vote_summary.total_votes,
+                    broadcaster_bot=lead_bot,
+                    reply_to_chat_id=chat_id,
+                )
+                announcement = format_execution_announcement(exec_res)
+                if lead_bot:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text=announcement,
+                        disable_web_page_preview=True,
+                    )
+                return exec_res.success
+            else:
+                if lead_bot:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text="🛑 <b>CONSENSUS NOT REACHED:</b> Task execution aborted by council vote.",
+                    )
+                return False
+
+        elif mode == "dve":
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=(
+                        f"🚀 <b>FULL INSTITUTIONAL PIPELINE (DEBATE ➔ VOTE ➔ EXECUTE)</b>\n"
+                        f"───────────────────────────────\n"
+                        f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
+                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
+                        f"👥 <b>Debate Rounds:</b> {config.DEBATE_MAX_ROUNDS}\n"
+                        f"🐕 <b>Execution Bridge:</b> Market Sniffer\n"
+                        f"───────────────────────────────\n"
+                        f"<b>Phase 1: Multi-Agent Debate Commencing...</b>"
+                    ),
+                )
+            vote_summary = await council.run_debate_and_vote(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=vote_summary.summary_text,
+                )
+            if vote_summary.consensus_passed:
+                exec_res = await MSnifferExecutor.execute_consensus(
+                    prompt=prompt,
+                    consensus_text=vote_summary.summary_text,
+                    yes_count=vote_summary.yes_count,
+                    total_votes=vote_summary.total_votes,
+                    broadcaster_bot=lead_bot,
+                    reply_to_chat_id=chat_id,
+                )
+                announcement = format_execution_announcement(exec_res)
+                if lead_bot:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text=announcement,
+                        disable_web_page_preview=True,
+                    )
+                return exec_res.success
+            else:
+                if lead_bot:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text="🛑 <b>PIPELINE TERMINATED:</b> Proposition failed to secure majority council consensus.",
+                    )
+                return False
+
+    finally:
+        if mood_override:
+            council.set_mood(old_mood)
+        is_busy = False
+        active_task_name = ""
+
+
 async def deb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /deb <prompt> (Debate Mode)."""
-    global is_busy, active_task_name
     auth, reason = is_authorized_admin(update)
     if not auth:
         await update.message.reply_text(f"⛔ {reason}")
         return
-
     prompt = extract_prompt(update, context)
     if not prompt:
-        await update.message.reply_text(
-            "🗣️ <b>Usage:</b> <code>/deb &lt;proposition or prompt&gt;</code>\n"
-            "<i>Example:</i> <code>/deb Should we allocate capital to Solana LST protocols?</code>",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text("🗣️ <b>Usage:</b> <code>/deb &lt;prompt&gt;</code>", parse_mode=ParseMode.HTML)
         return
-
-    if is_busy:
-        await update.message.reply_text(
-            f"⏳ The council is currently busy with: <b>{active_task_name}</b>. Please wait or use /cancel.",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
     chat_id = check_and_record_chat_id(update)
-    is_busy = True
-    active_task_name = f"Debate: {prompt[:30]}..."
-
-    try:
-        ack_msg = await update.message.reply_text(
-            f"🎙️ <b>AI COUNCIL DEBATE COMMENCING</b>\n"
-            f"───────────────────────────────\n"
-            f"📌 <b>Topic:</b> <i>{html.escape(prompt)}</i>\n"
-            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-            f"👥 <b>Active Debaters:</b> {len(council.agents_config)}\n"
-            f"───────────────────────────────",
-            parse_mode=ParseMode.HTML,
-        )
-
-        success = await council.run_debate(prompt=prompt, chat_id=chat_id, reply_to_id=update.message.message_id)
-
-        if success:
-            await update.message.reply_text(
-                "🏁 <b>Debate Concluded.</b>\n"
-                "To hold a formal vote on this proposition, use <code>/vot &lt;prompt&gt;</code> or <code>/exe</code>.",
-                parse_mode=ParseMode.HTML,
-            )
-        else:
-            await update.message.reply_text("⚠️ An issue occurred during the debate session.")
-
-    finally:
-        is_busy = False
-        active_task_name = ""
+    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="debate", reply_to_id=update.message.message_id)
 
 
 async def vot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /vot <prompt> (Vote Mode)."""
-    global is_busy, active_task_name
     auth, reason = is_authorized_admin(update)
     if not auth:
         await update.message.reply_text(f"⛔ {reason}")
         return
-
     prompt = extract_prompt(update, context)
     if not prompt:
-        await update.message.reply_text(
-            "🗳️ <b>Usage:</b> <code>/vot &lt;proposition or question&gt;</code>\n"
-            "<i>Example:</i> <code>/vot Approve buying $BONK at current liquidity levels?</code>",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/vot &lt;proposition&gt;</code>", parse_mode=ParseMode.HTML)
         return
-
-    if is_busy:
-        await update.message.reply_text(
-            f"⏳ The council is currently busy with: <b>{active_task_name}</b>. Please wait or use /cancel.",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
     chat_id = check_and_record_chat_id(update)
-    is_busy = True
-    active_task_name = f"Vote: {prompt[:30]}..."
-
-    try:
-        await update.message.reply_text(
-            f"🗳️ <b>FORMAL COUNCIL VOTE CONVENED</b>\n"
-            f"───────────────────────────────\n"
-            f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
-            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-            f"⚖️ <b>Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}% Majority</code>\n"
-            f"───────────────────────────────\n"
-            f"<i>Each council member will now state their rationale and cast an official vote...</i>",
-            parse_mode=ParseMode.HTML,
-        )
-
-        vote_summary = await council.run_vote(
-            prompt=prompt, chat_id=chat_id, reply_to_id=update.message.message_id
-        )
-
-        # Broadcast final tallied results into the group
-        lead_bot = council.broadcaster.get_bot(council.agents_config[0].name)
-        if lead_bot:
-            await safe_send_message(
-                bot=lead_bot,
-                chat_id=chat_id,
-                text=vote_summary.summary_text,
-                parse_mode=ParseMode.HTML,
-            )
-
-    finally:
-        is_busy = False
-        active_task_name = ""
+    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="vote", reply_to_id=update.message.message_id)
 
 
 async def exe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /exe <prompt> (Vote & Execute Mode)."""
-    global is_busy, active_task_name
     auth, reason = is_authorized_admin(update)
     if not auth:
         await update.message.reply_text(f"⛔ {reason}")
         return
-
     prompt = extract_prompt(update, context)
     if not prompt:
-        await update.message.reply_text(
-            "⚡ <b>Usage:</b> <code>/exe &lt;trade proposition with Solana CA&gt;</code>\n"
-            "<i>Example:</i> <code>/exe Buy 0.25 SOL of DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263</code>",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text("⚡ <b>Usage:</b> <code>/exe &lt;trade proposition with Solana CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
-
-    if is_busy:
-        await update.message.reply_text(
-            f"⏳ The council is currently busy with: <b>{active_task_name}</b>. Please wait or use /cancel.",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
     chat_id = check_and_record_chat_id(update)
-    is_busy = True
-    active_task_name = f"Execute: {prompt[:30]}..."
-
-    try:
-        await update.message.reply_text(
-            f"⚡ <b>COUNCIL VOTE & EXECUTE SESSION</b>\n"
-            f"───────────────────────────────\n"
-            f"📌 <b>Target Task:</b> <i>{html.escape(prompt)}</i>\n"
-            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-            f"🐕 <b>Target Bot:</b> <code>Market Sniffer (@Msnifferbot)</code>\n"
-            f"───────────────────────────────\n"
-            f"<i>Voting commenced. If majority consensus passes, task will execute instantly.</i>",
-            parse_mode=ParseMode.HTML,
-        )
-
-        # 1. Take Vote
-        vote_summary = await council.run_vote(
-            prompt=prompt, chat_id=chat_id, reply_to_id=update.message.message_id
-        )
-
-        lead_bot = council.broadcaster.get_bot(council.agents_config[0].name)
-        if lead_bot:
-            await safe_send_message(
-                bot=lead_bot,
-                chat_id=chat_id,
-                text=vote_summary.summary_text,
-                parse_mode=ParseMode.HTML,
-            )
-
-        # 2. Check Consensus
-        if vote_summary.consensus_passed:
-            exec_res = await MSnifferExecutor.execute_consensus(
-                prompt=prompt,
-                consensus_text=vote_summary.summary_text,
-                yes_count=vote_summary.yes_count,
-                total_votes=vote_summary.total_votes,
-                broadcaster_bot=lead_bot,
-                reply_to_chat_id=chat_id,
-            )
-            announcement = format_execution_announcement(exec_res)
-            if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text=announcement,
-                    parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True,
-                )
-        else:
-            if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text="🛑 <b>CONSENSUS NOT REACHED:</b> Task execution aborted by council vote.",
-                    parse_mode=ParseMode.HTML,
-                )
-
-    finally:
-        is_busy = False
-        active_task_name = ""
+    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="execute", reply_to_id=update.message.message_id)
 
 
 async def dve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /dve <prompt> (Debate, Vote & Execute Mode - Full Pipeline)."""
-    global is_busy, active_task_name
     auth, reason = is_authorized_admin(update)
     if not auth:
         await update.message.reply_text(f"⛔ {reason}")
         return
-
     prompt = extract_prompt(update, context)
     if not prompt:
-        await update.message.reply_text(
-            "🚀 <b>Usage:</b> <code>/dve &lt;trade proposition with Solana CA&gt;</code>\n"
-            "<i>Example:</i> <code>/dve Debate & execute DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 (0.25 SOL)</code>",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text("🚀 <b>Usage:</b> <code>/dve &lt;trade proposition with Solana CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
-
-    if is_busy:
-        await update.message.reply_text(
-            f"⏳ The council is currently busy with: <b>{active_task_name}</b>. Please wait or use /cancel.",
-            parse_mode=ParseMode.HTML,
-        )
-        return
-
     chat_id = check_and_record_chat_id(update)
-    is_busy = True
-    active_task_name = f"DVE Pipeline: {prompt[:30]}..."
-
-    try:
-        await update.message.reply_text(
-            f"🚀 <b>FULL INSTITUTIONAL PIPELINE (DEBATE ➔ VOTE ➔ EXECUTE)</b>\n"
-            f"───────────────────────────────\n"
-            f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
-            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-            f"👥 <b>Debate Rounds:</b> {config.DEBATE_MAX_ROUNDS}\n"
-            f"🐕 <b>Execution Bridge:</b> Market Sniffer\n"
-            f"───────────────────────────────\n"
-            f"<b>Phase 1: Multi-Agent Debate Commencing...</b>",
-            parse_mode=ParseMode.HTML,
-        )
-
-        # 1. Debate & Vote
-        vote_summary = await council.run_debate_and_vote(
-            prompt=prompt, chat_id=chat_id, reply_to_id=update.message.message_id
-        )
-
-        lead_bot = council.broadcaster.get_bot(council.agents_config[0].name)
-        if lead_bot:
-            await safe_send_message(
-                bot=lead_bot,
-                chat_id=chat_id,
-                text=vote_summary.summary_text,
-                parse_mode=ParseMode.HTML,
-            )
-
-        # 2. Check Consensus and Execute
-        if vote_summary.consensus_passed:
-            exec_res = await MSnifferExecutor.execute_consensus(
-                prompt=prompt,
-                consensus_text=vote_summary.summary_text,
-                yes_count=vote_summary.yes_count,
-                total_votes=vote_summary.total_votes,
-                broadcaster_bot=lead_bot,
-                reply_to_chat_id=chat_id,
-            )
-            announcement = format_execution_announcement(exec_res)
-            if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text=announcement,
-                    parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True,
-                )
-        else:
-            if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text="🛑 <b>PIPELINE TERMINATED:</b> Proposition failed to secure majority council consensus.",
-                    parse_mode=ParseMode.HTML,
-                )
-
-    finally:
-        is_busy = False
-        active_task_name = ""
+    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="dve", reply_to_id=update.message.message_id)
 
 
 # =============================================================================
-# 5. APPLICATION INITIALIZATION & MAIN LOOP
+# 5. SMART MESSAGE HANDLER (MANUAL CA POSTINGS WITH FLAGS & INLINE BUTTONS)
+# =============================================================================
+
+async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles regular text messages posted into the group chat:
+    1. Detects Solana CAs, Pump.fun links, DexScreener links, etc.
+    2. Checks for flags (-dve, -exe, -vot, -deb, -auto, -a <amt>, -m <mood>)
+    3. If flag is present: immediately executes that mode for the CA!
+    4. If no flag is present: replies with interactive 1-click inline buttons!
+    """
+    if not update.message or not update.message.text:
+        return
+
+    text = update.message.text.strip()
+    chat_id = check_and_record_chat_id(update)
+
+    # 1. Check if message contains a Solana CA or DEX URL
+    mint, action, amount, symbol = SignalExtractor.extract(text)
+
+    # If no CA in the message, check if replying to a message with a CA
+    if not mint and update.message.reply_to_message and update.message.reply_to_message.text:
+        mint, action, amount, symbol = SignalExtractor.extract(update.message.reply_to_message.text)
+
+    # If still no CA, ignore silently (so regular chit-chat in the group is untouched)
+    if not mint:
+        return
+
+    # 2. Check authorization
+    auth, reason = is_authorized_admin(update)
+    if not auth:
+        logger.debug(f"Non-admin posted CA {mint}; ignoring or unauthorized.")
+        return
+
+    # 3. Parse flags
+    mode = None
+    if re.search(r"(?:^|\s)(?:--?dve)\b", text, re.IGNORECASE):
+        mode = "dve"
+    elif re.search(r"(?:^|\s)(?:--?(?:exe|execute))\b", text, re.IGNORECASE):
+        mode = "exe"
+    elif re.search(r"(?:^|\s)(?:--?(?:vot|vote))\b", text, re.IGNORECASE):
+        mode = "vote"
+    elif re.search(r"(?:^|\s)(?:--?(?:deb|debate))\b", text, re.IGNORECASE):
+        mode = "debate"
+    elif re.search(r"(?:^|\s)(?:--?(?:auto|autopilot|loop))\b", text, re.IGNORECASE):
+        mode = "auto"
+
+    # Custom amount flag (-a 0.5 or --amount 0.5)
+    amt_match = re.search(r"(?:-a|--amount)\s+(\d+(?:\.\d+)?)", text, re.IGNORECASE)
+    if amt_match:
+        try:
+            amount = float(amt_match.group(1))
+        except ValueError:
+            pass
+
+    # Custom mood flag (-m ruthless or --mood ruthless)
+    mood_match = re.search(r"(?:-m|--mood)\s+([a-zA-Z]+)", text, re.IGNORECASE)
+    mood_override = mood_match.group(1).lower() if mood_match else None
+
+    # 4. Handle Autopilot flag
+    if mode == "auto":
+        lead_bot = council.broadcaster.get_bot(council.agents_config[0].name) if council else None
+        if not lead_bot:
+            await update.message.reply_text("❌ Council Orchestrator is not ready.")
+            return
+        success, msg = await autopilot.start(chat_id=chat_id, lead_bot=lead_bot, council_orchestrator=council)
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return
+
+    # 5. If specific operational mode flag was attached, run immediately!
+    if mode in ("dve", "exe", "vote", "debate"):
+        action_desc = "BUY" if action == "BUY" else "SELL"
+        prompt = f"{action_desc} {amount:.2f} SOL of token {mint}"
+        if symbol:
+            prompt += f" (${symbol})"
+        await execute_council_session(
+            chat_id=chat_id,
+            prompt=prompt,
+            mode=mode,
+            reply_to_id=update.message.message_id,
+            mood_override=mood_override,
+        )
+        return
+
+    # 6. If NO flag attached (bare CA), present interactive 1-click inline keyboard!
+    dex_url = f"https://dexscreener.com/solana/{mint}"
+    keyboard = [
+        [
+            InlineKeyboardButton("🚀 Full DVE Pipeline", callback_data=f"dve:{mint}:{amount}"),
+            InlineKeyboardButton("⚡ Vote & Execute", callback_data=f"exe:{mint}:{amount}"),
+        ],
+        [
+            InlineKeyboardButton("🗳️ Vote Only", callback_data=f"vot:{mint}:{amount}"),
+            InlineKeyboardButton("🎙️ Debate Only", callback_data=f"deb:{mint}:{amount}"),
+        ],
+        [
+            InlineKeyboardButton(
+                "🛑 Stop Autopilot" if autopilot.is_running else "🤖 Start Autopilot",
+                callback_data="auto:toggle",
+            ),
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    card_text = (
+        f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
+        f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
+        f"💰 <b>Default Amount:</b> <code>{amount:.2f} SOL</code>\n\n"
+        f"<i>Select an action for the AI Council:</i>"
+    )
+
+    await update.message.reply_text(
+        card_text,
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles clicks on interactive inline keyboard buttons."""
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer()
+
+    # Verify authorization
+    user = update.effective_user
+    if config.ADMIN_USER_IDS and user and user.id not in config.ADMIN_USER_IDS:
+        await query.message.reply_text("⛔ Unauthorized: Only configured council admins can trigger actions.")
+        return
+
+    data = query.data or ""
+    chat_id = query.message.chat_id if query.message else config.GROUP_CHAT_ID
+
+    if data == "auto:toggle":
+        lead_bot = council.broadcaster.get_bot(council.agents_config[0].name) if council else None
+        if not lead_bot:
+            await query.message.reply_text("❌ Council Orchestrator is not ready.")
+            return
+
+        if autopilot.is_running:
+            res_msg = await autopilot.stop()
+            await query.message.reply_text(res_msg, parse_mode=ParseMode.HTML)
+        else:
+            success, res_msg = await autopilot.start(chat_id=chat_id, lead_bot=lead_bot, council_orchestrator=council)
+            await query.message.reply_text(res_msg, parse_mode=ParseMode.HTML)
+        return
+
+    parts = data.split(":")
+    if len(parts) >= 2:
+        cmd_type = parts[0]
+        mint = parts[1]
+        amount = float(parts[2]) if len(parts) > 2 else config.DEFAULT_TRADE_AMOUNT_SOL
+
+        mode_map = {
+            "dve": "dve",
+            "exe": "execute",
+            "vot": "vote",
+            "deb": "debate",
+        }
+        mode = mode_map.get(cmd_type, "dve")
+        prompt = f"BUY {amount:.2f} SOL of token {mint}"
+
+        # Cleanly remove the buttons from the trigger message to prevent double-clicks
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+        await execute_council_session(
+            chat_id=chat_id,
+            prompt=prompt,
+            mode=mode,
+            reply_to_id=query.message.message_id if query.message else None,
+        )
+
+
+# =============================================================================
+# 6. APPLICATION INITIALIZATION & MAIN LOOP
 # =============================================================================
 
 async def post_init(application: Application):
@@ -710,10 +946,12 @@ def main():
         .build()
     )
 
-    # Register command handlers
+    # 1. Command handlers
     application.add_handler(CommandHandler(["start"], start_command))
     application.add_handler(CommandHandler(["help"], help_command))
     application.add_handler(CommandHandler(["status"], status_command))
+    application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
+    application.add_handler(CommandHandler(["autopilot", "auto"], autopilot_command))
     application.add_handler(CommandHandler(["mood"], mood_command))
     application.add_handler(CommandHandler(["setnames"], setnames_command))
     application.add_handler(CommandHandler(["cancel", "stop"], cancel_command))
@@ -723,6 +961,12 @@ def main():
     application.add_handler(CommandHandler(["exe", "execute"], exe_command))
     application.add_handler(CommandHandler(["dve"], dve_command))
 
+    # 2. Callback query handler for inline button clicks
+    application.add_handler(CallbackQueryHandler(handle_callback_query))
+
+    # 3. Message handler for raw CA postings with flags or interactive menus
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_group_message))
+
     # Run polling loop
     logger.info(f"Starting long polling on @{listener_agent.username}...")
     application.run_polling(drop_pending_updates=True)
@@ -730,3 +974,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
