@@ -94,10 +94,16 @@ class PositionManager:
     ) -> Position:
         """Registers a newly purchased token position with designated exit strategy."""
         strat = exit_strategy.upper() if exit_strategy else config.DEFAULT_EXIT_STRATEGY
-        if strat not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
-            strat = "TRAILING_RUNNER"
-        if strat == "AUTO_EXIT":
+        if strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
+            strat = "50PCT_TAKE_PROFIT"
+        elif strat in ("2X", "2X_TAKE_PROFIT", "AUTO_EXIT", "100", "100%"):
             strat = "2X_TAKE_PROFIT"
+        elif strat in ("TRAILING_RUNNER", "RUNNER", "TRAIL", "LONG"):
+            strat = "TRAILING_RUNNER"
+        elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND"):
+            strat = "HOLD_INDEFINITE"
+        else:
+            strat = "TRAILING_RUNNER"
 
         pos = Position(
             mint=mint,
@@ -132,11 +138,16 @@ class PositionManager:
             return False, f"No open position found for token <code>{mint}</code>"
 
         strat = strategy.upper()
-        if strat not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
-            return False, "Strategy must be TRAILING_RUNNER, 2X_TAKE_PROFIT, or HOLD_INDEFINITE"
-
-        if strat == "AUTO_EXIT":
+        if strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
+            strat = "50PCT_TAKE_PROFIT"
+        elif strat in ("2X", "2X_TAKE_PROFIT", "AUTO_EXIT", "100", "100%"):
             strat = "2X_TAKE_PROFIT"
+        elif strat in ("TRAILING_RUNNER", "RUNNER", "TRAIL", "LONG"):
+            strat = "TRAILING_RUNNER"
+        elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND"):
+            strat = "HOLD_INDEFINITE"
+        else:
+            return False, "Strategy must be 50PCT_TAKE_PROFIT (50%), 2X_TAKE_PROFIT (2x), TRAILING_RUNNER, or HOLD_INDEFINITE"
 
         pos.exit_strategy = strat
         self._save()
@@ -144,8 +155,10 @@ class PositionManager:
             desc = "💎 HOLD INDEFINITELY"
         elif strat == "TRAILING_RUNNER":
             desc = f"🚀 LONG RUNNER (Trail peak by -{config.TRAILING_STOP_PCT:.0f}% after +50%)"
+        elif strat == "50PCT_TAKE_PROFIT":
+            desc = "⚡ QUICK 50% SCALP (+50.0% Take-Profit)"
         else:
-            desc = f"🎯 FIXED 2X TAKE-PROFIT (+100.0% / 2x Return)"
+            desc = "🎯 FIXED 2X TAKE-PROFIT (+100.0% / 2x Return)"
         safe_name = html.escape(pos.name)
         safe_sym = html.escape(pos.symbol)
         return True, f"Updated strategy for <b>{safe_name}</b> (<code>${safe_sym}</code>) to <b>{desc}</b>"
@@ -164,7 +177,7 @@ class PositionManager:
             if pos.entry_price_usd > 0:
                 pos.pnl_pct = round(((current_price_usd - pos.entry_price_usd) / pos.entry_price_usd) * 100.0, 2)
 
-            self._save()
+        self._save()
         return pos
 
     def check_exit_triggers(self, mint: str, current_price_usd: float) -> Tuple[bool, str]:
@@ -203,6 +216,18 @@ class PositionManager:
             # 1. 2X Target Reached (Price doubled or pnl >= 100%)
             if pnl >= 100.0 or current_price_usd >= pos.entry_price_usd * 2.0:
                 return True, f"2X Take-Profit Target Reached (+{pnl:.1f}% gain / 2x return)"
+
+            # 2. Hard Stop-Loss Trigger (default -25%)
+            if pnl <= -config.STOP_LOSS_PCT:
+                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)"
+
+            return False, ""
+
+        # Strategy 3: 50PCT_TAKE_PROFIT / SCALP_50 (Quick 50% Scalp: Sells once it reaches +50% gain)
+        if pos.exit_strategy in ("50PCT_TAKE_PROFIT", "SCALP_50"):
+            # 1. 50% Target Reached (Price >= entry * 1.50 or pnl >= 50%)
+            if pnl >= 50.0 or current_price_usd >= pos.entry_price_usd * 1.50:
+                return True, f"50% Take-Profit Target Reached (+{pnl:.1f}% gain)"
 
             # 2. Hard Stop-Loss Trigger (default -25%)
             if pnl <= -config.STOP_LOSS_PCT:
@@ -255,6 +280,8 @@ class PositionManager:
                 strat_badge = "💎 HOLD"
             elif p.exit_strategy == "TRAILING_RUNNER":
                 strat_badge = f"🚀 RUNNER (-{config.TRAILING_STOP_PCT:.0f}% peak trail)"
+            elif p.exit_strategy in ("50PCT_TAKE_PROFIT", "SCALP_50"):
+                strat_badge = "⚡ 50% SCALP (+50%)"
             else:
                 strat_badge = "🎯 FIXED 2X (+100%)"
             safe_name = html.escape(p.name)

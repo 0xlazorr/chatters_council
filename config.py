@@ -205,11 +205,12 @@ USDT_SOLANA_MINT: str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
 # Position Exit & Profit-Taking Targets
 # Supported strategies:
+# - "50PCT_TAKE_PROFIT": Quick 50% profit target (safe scalp / cut down losses)
+# - "2X_TAKE_PROFIT": Double up mode (auto sells when token doubles / +100%)
 # - "TRAILING_RUNNER": Long runner mode (rides 5x-100x; exits when price retraces 25% from peak)
-# - "2X_TAKE_PROFIT": Fixed 2x mode (automatically takes profit and sells when position reaches 2x / +100% gain)
 # - "HOLD_INDEFINITE": Diamond hands (never auto-sells; manual exit only via /sell)
 DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "TRAILING_RUNNER").strip().upper()
-if DEFAULT_EXIT_STRATEGY not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
+if DEFAULT_EXIT_STRATEGY not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "50PCT_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
     DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
 
 TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "100.0"))  # Fixed 2x take-profit (+100.0% gain)
