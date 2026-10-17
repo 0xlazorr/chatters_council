@@ -238,18 +238,18 @@ def set_moonbag_wallet(address: str) -> bool:
 
 # Position Exit & Profit-Taking Targets
 # Supported strategies:
-# - "DUAL_SPLIT": ⚡ Scalp + 💎 Moonbag (50% sold at +50%/2x to secure initial SOL; 50% held indefinitely for generational runners)
-# - "50PCT_TAKE_PROFIT": Quick 50% profit target (safe scalp / cut down losses)
-# - "2X_TAKE_PROFIT": Double up mode (auto sells when token doubles / +100%)
-# - "TRAILING_RUNNER": Long runner mode (rides 5x-100x; exits when price retraces 25% from peak)
-# - "HOLD_INDEFINITE": Diamond hands (never auto-sells; manual exit only via /sell)
-DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "DUAL_SPLIT").strip().upper()
-if DEFAULT_EXIT_STRATEGY not in ("DUAL_SPLIT", "TRAILING_RUNNER", "2X_TAKE_PROFIT", "50PCT_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
-    DEFAULT_EXIT_STRATEGY = "DUAL_SPLIT"
+# - "TRAILING_RUNNER": 🚀 Smart Runner (Default: -20% Stop-Loss -> Breakeven at +30% -> 25% Trailing Peak for 10x-100x runs)
+# - "HOLD_INDEFINITE": 💎 Diamond Hold (Never auto-sells; manual exit only via /sell)
+# - "2X_TAKE_PROFIT": 🎯 Fixed 2x Doubler (Auto sells 100% when token doubles / +100%)
+# - "50PCT_TAKE_PROFIT": ⚡ Quick 50% Scalp (Auto sells 100% at +50%)
+DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "TRAILING_RUNNER").strip().upper()
+if DEFAULT_EXIT_STRATEGY not in ("TRAILING_RUNNER", "HOLD_INDEFINITE", "2X_TAKE_PROFIT", "50PCT_TAKE_PROFIT", "AUTO_EXIT"):
+    DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
 
-TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "100.0"))  # Fixed 2x take-profit (+100.0% gain)
-STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Hard stop-loss limit (-25.0%)
-TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "25.0"))  # Retrace from peak to exit runner (widened to 25% for memecoin breathing room)
+STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "20.0"))          # Initial hard stop-loss limit (-20.0%)
+BREAKEVEN_PROFIT_PCT: float = float(os.getenv("BREAKEVEN_PROFIT_PCT", "30.0"))  # When token reaches +30%, stop-loss ratchets to Breakeven
+TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "25.0"))  # Retrace from peak to exit runner once above +50%
+TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "100.0"))      # Fixed 2x take-profit (+100.0% gain)
 
 # Profit Vault Sweeper (One-way ratchet: sweeps profits to USDT; NEVER converts USDT back to SOL)
 PROFIT_VAULT_ENABLED: bool = os.getenv("PROFIT_VAULT_ENABLED", "true").lower() in ("true", "1", "yes")

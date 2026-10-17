@@ -37,7 +37,7 @@ class Position:
     amount_sol: float
     entry_timestamp: float
     status: str = "OPEN"  # "OPEN" or "CLOSED"
-    exit_strategy: str = "DUAL_SPLIT"  # "DUAL_SPLIT", "50PCT_TAKE_PROFIT", "2X_TAKE_PROFIT", "TRAILING_RUNNER", "HOLD_INDEFINITE"
+    exit_strategy: str = "TRAILING_RUNNER"  # "TRAILING_RUNNER", "HOLD_INDEFINITE", "2X_TAKE_PROFIT", "50PCT_TAKE_PROFIT"
     pnl_pct: float = 0.0
     buy_tx_hash: str = ""
     exit_tx_hash: str = ""
@@ -97,18 +97,16 @@ class PositionManager:
     ) -> Position:
         """Registers a newly purchased token position with designated exit strategy."""
         strat = exit_strategy.upper() if exit_strategy else config.DEFAULT_EXIT_STRATEGY
-        if strat in ("DUAL", "DUAL_SPLIT", "SPLIT", "MOONBAG", "MOONBAG_SPLIT"):
-            strat = "DUAL_SPLIT"
-        elif strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
+        if strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
             strat = "50PCT_TAKE_PROFIT"
         elif strat in ("2X", "2X_TAKE_PROFIT", "AUTO_EXIT", "100", "100%"):
             strat = "2X_TAKE_PROFIT"
-        elif strat in ("TRAILING_RUNNER", "RUNNER", "TRAIL", "LONG"):
+        elif strat in ("TRAILING_RUNNER", "RUNNER", "TRAIL", "LONG", "SMART", "SMART_RUNNER"):
             strat = "TRAILING_RUNNER"
-        elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND"):
+        elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND", "DIAMOND_HOLD"):
             strat = "HOLD_INDEFINITE"
         else:
-            strat = "DUAL_SPLIT"
+            strat = "TRAILING_RUNNER"
 
         pos = Position(
             mint=mint,
@@ -146,23 +144,23 @@ class PositionManager:
             return False, f"No open position found for token <code>{mint}</code>"
 
         strat = strategy.upper()
-        if strat in ("DUAL", "DUAL_SPLIT", "SPLIT", "MOONBAG", "MOONBAG_SPLIT"):
-            strat = "DUAL_SPLIT"
-            desc = "⚡ SCALP + 💎 MOONBAG (Sell 50% at profit, hold 50% indefinitely)"
+        if strat in ("TRAILING_RUNNER", "RUNNER", "TRAIL", "LONG", "SMART", "SMART_RUNNER"):
+            strat = "TRAILING_RUNNER"
+            desc = f"🚀 SMART RUNNER (Stop: -{config.STOP_LOSS_PCT:.0f}% -> Breakeven at +{config.BREAKEVEN_PROFIT_PCT:.0f}% -> Trail peak -{config.TRAILING_STOP_PCT:.0f}%)"
+        elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND", "DIAMOND_HOLD"):
+            strat = "HOLD_INDEFINITE"
+            desc = "💎 DIAMOND HOLD (Never Auto-Sells, Manual /sell only)"
+        elif strat in ("2X", "2X_TAKE_PROFIT", "AUTO_EXIT", "100", "100%", "DOUBLE"):
+            strat = "2X_TAKE_PROFIT"
+            desc = "🎯 FIXED 2X TAKE-PROFIT (+100.0% / 2x Return)"
         elif strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
             strat = "50PCT_TAKE_PROFIT"
             desc = "⚡ QUICK 50% SCALP (+50.0% Take-Profit)"
-        elif strat in ("2X", "2X_TAKE_PROFIT", "AUTO_EXIT", "100", "100%"):
-            strat = "2X_TAKE_PROFIT"
-            desc = "🎯 FIXED 2X TAKE-PROFIT (+100.0% / 2x Return)"
-        elif strat in ("TRAILING_RUNNER", "RUNNER", "TRAIL", "LONG"):
+        elif strat in ("DUAL", "DUAL_SPLIT", "SPLIT", "MOONBAG"):
             strat = "TRAILING_RUNNER"
-            desc = f"🚀 LONG RUNNER (Trail peak by -{config.TRAILING_STOP_PCT:.0f}% after +50%)"
-        elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND"):
-            strat = "HOLD_INDEFINITE"
-            desc = "💎 HOLD INDEFINITELY"
+            desc = f"🚀 SMART RUNNER (-{config.STOP_LOSS_PCT:.0f}% SL / Breakeven / Trail)"
         else:
-            return False, "Strategy must be DUAL_SPLIT (Scalp+Moonbag), 50PCT_TAKE_PROFIT, 2X_TAKE_PROFIT, TRAILING_RUNNER, or HOLD_INDEFINITE"
+            return False, "Strategy must be TRAILING_RUNNER (Smart Runner), HOLD_INDEFINITE (Diamond Hold), 2X_TAKE_PROFIT, or 50PCT_TAKE_PROFIT"
 
         pos.exit_strategy = strat
         self._save()
@@ -225,18 +223,27 @@ class PositionManager:
                 # Scalp already banked! The remaining 50% is a diamond hands moonbag held indefinitely!
                 return False, "", 0.0
 
-        # Strategy 1: TRAILING_RUNNER (Long Runner Mode: Lets winners run to 5x-100x; locks in profit once peak pulls back 25%)
+        # Strategy 1: TRAILING_RUNNER (Smart Runner: -20% Stop-Loss -> Breakeven at +30% -> Uncapped 25% peak trail for 10x-100x runs)
         if pos.exit_strategy == "TRAILING_RUNNER":
-            # 1. Hard Stop-Loss Trigger (default -25% loss limit)
+            peak_pnl = round(((pos.peak_price_usd - pos.entry_price_usd) / pos.entry_price_usd) * 100.0, 1) if pos.entry_price_usd > 0 else 0.0
+
+            # 1. Breakeven Ratchet: if peak reached >= +30%, stop-loss jumps to Entry Price ($0 loss floor)
+            if peak_pnl >= config.BREAKEVEN_PROFIT_PCT or pos.peak_price_usd >= pos.entry_price_usd * (1.0 + config.BREAKEVEN_PROFIT_PCT / 100.0):
+                # If price pulls back to or below entry price, exit to lock in zero capital loss!
+                if current_price_usd <= pos.entry_price_usd:
+                    return True, f"🛡️ Breakeven Capital Protection Triggered (Protected at $0 loss after peaking at +{peak_pnl:.1f}%)", 100.0
+
+                # 2. Uncapped Trailing Runner: once running above +50%, trail highest peak price by 25%
+                if pos.peak_price_usd >= pos.entry_price_usd * 1.50:
+                    drawdown_from_peak = ((pos.peak_price_usd - current_price_usd) / pos.peak_price_usd) * 100.0
+                    if drawdown_from_peak >= config.TRAILING_STOP_PCT:
+                        return True, f"🚀 Trailing Profit Lock Triggered (-{drawdown_from_peak:.1f}% from peak, locked in +{pnl:.1f}% gain)", 100.0
+
+                return False, "", 0.0
+
+            # 3. Initial Hard Stop-Loss Protection (-20% loss limit)
             if pnl <= -config.STOP_LOSS_PCT:
                 return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)", 100.0
-
-            # 2. Once in profit (peak >= entry * 1.50, i.e. +50% or higher), trail peak price!
-            # With TRAILING_STOP_PCT = 25%, it gives plenty of breathing room for memecoin volatility
-            if pos.peak_price_usd >= pos.entry_price_usd * 1.50:
-                drawdown_from_peak = ((pos.peak_price_usd - current_price_usd) / pos.peak_price_usd) * 100.0
-                if drawdown_from_peak >= config.TRAILING_STOP_PCT:
-                    return True, f"Trailing Profit Lock Triggered (-{drawdown_from_peak:.1f}% from peak, locked in +{pnl:.1f}% gain)", 100.0
 
             return False, "", 0.0
 
@@ -336,15 +343,18 @@ class PositionManager:
         for p in open_pos:
             pnl_badge = f"+{p.pnl_pct:.1f}% 🟢" if p.pnl_pct >= 0 else f"{p.pnl_pct:.1f}% 🔴"
             if p.exit_strategy == "HOLD_INDEFINITE":
-                strat_badge = "💎 HOLD"
+                strat_badge = "💎 DIAMOND HOLD"
             elif p.exit_strategy == "TRAILING_RUNNER":
-                strat_badge = f"🚀 RUNNER (-{config.TRAILING_STOP_PCT:.0f}% peak trail)"
+                strat_badge = f"🚀 SMART RUNNER (-{config.STOP_LOSS_PCT:.0f}% SL / Trail)"
             elif p.exit_strategy in ("50PCT_TAKE_PROFIT", "SCALP_50"):
                 strat_badge = "⚡ 50% SCALP (+50%)"
-            else:
+            elif p.exit_strategy in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
                 strat_badge = "🎯 FIXED 2X (+100%)"
+            else:
+                strat_badge = p.exit_strategy
             safe_name = html.escape(p.name)
             safe_sym = html.escape(p.symbol)
+            dex_url = f"https://dexscreener.com/solana/{p.mint}"
             lines.append(
                 f"🪙 <b>{safe_name}</b> (<code>${safe_sym}</code>)\n"
                 f"  • Strategy: <b>{strat_badge}</b> | PnL: <b>{pnl_badge}</b>\n"

@@ -238,10 +238,10 @@ def build_main_menu_keyboard() -> InlineKeyboardMarkup:
     ]
     row2 = [
         InlineKeyboardButton("🤖 Autopilot Settings", callback_data="menu:auto"),
-        InlineKeyboardButton("💳 Two-Wallet Setup", callback_data="menu:wallet"),
+        InlineKeyboardButton("💰 Wallet & Balance", callback_data="menu:wallet"),
     ]
     row3 = [
-        InlineKeyboardButton("🛡️ Security & Vault", callback_data="menu:security"),
+        InlineKeyboardButton("🛡️ Security & Audits", callback_data="menu:security"),
         InlineKeyboardButton("🔄 Refresh Dashboard", callback_data="menu:refresh"),
     ]
     return InlineKeyboardMarkup([row1, row2, row3])
@@ -250,16 +250,16 @@ def build_main_menu_keyboard() -> InlineKeyboardMarkup:
 async def format_main_dashboard() -> str:
     """Formats the unified Master Control Dashboard."""
     strat = config.DEFAULT_EXIT_STRATEGY
-    if strat == "DUAL_SPLIT":
-        strat_desc = "⚡ Scalp + 💎 Moonbag (50/50)"
-    elif strat == "TRAILING_RUNNER":
-        strat_desc = f"🚀 Long Runner (-{config.TRAILING_STOP_PCT:.0f}% trail)"
+    if strat == "TRAILING_RUNNER":
+        strat_desc = f"🚀 Smart Runner (-{config.STOP_LOSS_PCT:.0f}% SL / Breakeven / Trail)"
+    elif strat == "HOLD_INDEFINITE":
+        strat_desc = "💎 Diamond Hold (Manual /sell only)"
     elif strat == "50PCT_TAKE_PROFIT":
         strat_desc = "⚡ Quick 50% Scalp (+50.0%)"
     elif strat in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
         strat_desc = "🎯 Fixed 2x Target (+100.0%)"
     else:
-        strat_desc = "💎 Diamond Hands (Hold)"
+        strat_desc = f"🚀 Smart Runner (-{config.STOP_LOSS_PCT:.0f}% SL / Trail)"
 
     open_pos = position_manager.get_open_positions()
     pos_count = len(open_pos)
@@ -270,22 +270,18 @@ async def format_main_dashboard() -> str:
     wallet_info = await MSnifferExecutor.get_wallet_status()
     sol_bal = wallet_info.get("sol_balance", 0.0)
 
-    moonbag_vault = config.get_moonbag_wallet()
-    vault_status = f"<code>{moonbag_vault[:6]}...{moonbag_vault[-4:]}</code>" if moonbag_vault else "<i>Not Set</i>"
-
     return (
         "🏛️ <b>CHATTERS AI COUNCIL CONTROL CENTER</b>\n"
         "───────────────────────────────\n"
         f"🎯 <b>Default Exit Mode:</b> <code>{strat_desc}</code>\n"
         f"🤖 <b>Autopilot Scanner:</b> <code>{ap_status} (Every {ap_freq})</code>\n"
         f"📈 <b>Active Holdings:</b> <code>{pos_count} Open Positions</code>\n"
-        f"💰 <b>Hot Trading Wallet:</b> <code>{sol_bal:.4f} SOL</code>\n"
-        f"💎 <b>Cold Moonbag Vault:</b> {vault_status}\n"
+        f"💰 <b>Trading Wallet:</b> <code>{sol_bal:.4f} SOL</code>\n"
         "───────────────────────────────\n"
         "<b>The 3-Step Simple Loop:</b>\n"
         "1️⃣ <b>Catch Early:</b> Autopilot detects new launches, or paste any CA directly in chat\n"
         "2️⃣ <b>Deliberate:</b> 5 AI agents verify security & liquidity to vote on the token\n"
-        "3️⃣ <b>Buy & Exit:</b> Scalp profits at +50%/2x & hold 50% as a free moonbag forever!\n"
+        "3️⃣ <b>Buy & Exit:</b> Auto-rides 10x-100x runners with breakeven protection, or hold diamond hands!\n"
         "───────────────────────────────\n"
         "<i>Tap a button below to control your bots:</i>"
     )
@@ -321,21 +317,19 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• The 5 AI agents instantly pull on-chain security (rugcheck, freeze/mint authority) and DEX liquidity.\n"
         "• They debate and vote whether the token is worth buying.\n\n"
         "3️⃣ <b>BUY & EXIT ACCORDING TO YOUR MODE:</b>\n"
-        "• <b>⚡💎 Scalp + Moonbag:</b> Sells 50% at +50% to bank profit & secure SOL; retains 50% forever for 100x runs!\n"
-        "• <b>⚡ Quick 50% Scalp:</b> Auto-exits 100% of bag at +50% profit (safe flips / cuts risk).\n"
+        "• <b>🚀 Smart Runner (Default):</b> -20% stop-loss ➔ Breakeven lock at +30% ➔ Trails peak by 25% for 10x-100x runs!\n"
+        "• <b>💎 Diamond Hold:</b> Conviction holding, bot NEVER auto-sells. Exit manually via /sell.\n"
         "• <b>🎯 Fixed 2x Mode:</b> Auto-exits 100% of bag when price doubles (+100% gain / 2x return).\n"
-        "• <b>🚀 Long Runner Mode:</b> Rides 5x-100x runs; trails peak by 25% once above +50%.\n"
-        "• <b>💎 Diamond Hold:</b> Holds indefinitely until you choose to sell.\n\n"
+        "• <b>⚡ Quick 50% Scalp:</b> Auto-exits 100% of bag at +50% profit (quick risk-free profit).\n\n"
         "───────────────────────────────\n"
         "<b>Essential Commands (Or just tap /menu):</b>\n"
         "• <code>/menu</code> - Master Dashboard with 1-tap interactive buttons\n"
-        "• <code>/mode</code> - Switch exit strategy (Scalp+Moonbag, 50%, 2x, Runner, Hold)\n"
+        "• <code>/mode</code> - Switch exit strategy (Smart Runner, Diamond Hold, 2x, 50%)\n"
         "• <code>/portfolio</code> - View holdings & 1-tap exit switcher per token\n"
         "• <code>/buy &lt;CA&gt;</code> - Deliberate & buy token (or paste CA)\n"
         "• <code>/sell &lt;CA&gt;</code> - Sell a token manually\n"
         "• <code>/auto</code> - Autopilot background scanner\n"
-        "• <code>/wallet</code> - View Two-Wallet setup (Hot Trading & Cold Moonbag Vault)\n"
-        "• <code>/setmoonbag &lt;addr&gt;</code> - Configure cold storage address for long runners\n"
+        "• <code>/wallet</code> - View trading wallet & live SOL balance\n"
         "• <code>/security</code> - View live security audit & hardening protections\n"
         "• <code>/cancel</code> - Cancel active session or autopilot"
     )
@@ -383,7 +377,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays Market Sniffer execution wallet pubkey, Cold Moonbag Vault, and live SOL balance."""
+    """Displays Market Sniffer execution wallet pubkey and live SOL balance."""
     chat_id = check_and_record_chat_id(update)
     wallet_info = await MSnifferExecutor.get_wallet_status()
 
@@ -394,43 +388,27 @@ async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     solscan_url = f"https://solscan.io/account/{pubkey}" if pubkey and pubkey != "Unavailable" else ""
 
-    moonbag_vault = config.get_moonbag_wallet()
-    moonbag_display = f"<code>{moonbag_vault}</code>" if moonbag_vault else "<i>Not Set (Configure with /setmoonbag &lt;addr&gt;)</i>"
-    moonbag_solscan = f"🔗 <a href='https://solscan.io/account/{moonbag_vault}'>View Moonbag Vault on Solscan</a>" if moonbag_vault else ""
-
     lines = [
-        "💳 <b>COUNCIL TWO-WALLET ARCHITECTURE</b>",
+        "💳 <b>COUNCIL TRADING WALLET STATUS</b>",
         "───────────────────────────────",
-        "🔥 <b>Primary Hot Trading Wallet (Market Sniffer):</b>",
-        f"• <b>Status:</b> {status_icon}",
-        f"• <b>Address:</b> <code>{pubkey}</code>",
-        f"• <b>Balance:</b> <code>{sol_bal:.4f} SOL</code>",
-        f"• <b>Role:</b> Active entries, sniper buys & 50% scalp exits",
+        f"🐕 <b>Market Sniffer:</b> {status_icon}",
+        f"🔑 <b>Public Key:</b> <code>{pubkey}</code>",
+        f"💰 <b>SOL Balance:</b> <code>{sol_bal:.4f} SOL</code>",
+        f"🎯 <b>Default Buy Size:</b> <code>{config.DEFAULT_TRADE_AMOUNT_SOL:.2f} SOL</code>",
+        f"🛡️ <b>Default Exit Mode:</b> <code>{config.DEFAULT_EXIT_STRATEGY}</code>",
+        f"🤖 <b>Autopilot State:</b> <code>{'ACTIVE 🟢' if autopilot.is_running else 'STOPPED ⚪'}</code>",
     ]
     if solscan_url:
-        lines.append(f"• {solscan_url}")
-
-    lines.extend([
-        "",
-        "💎 <b>Secondary Cold Moonbag Vault:</b>",
-        f"• <b>Address:</b> {moonbag_display}",
-        f"• <b>Role:</b> Safe offline vault for generational runners (Never auto-sold)",
-    ])
-    if moonbag_solscan:
-        lines.append(f"• {moonbag_solscan}")
+        lines.append(f"🔗 <a href='{solscan_url}'>View Wallet on Solscan</a>")
 
     lines.extend([
         "───────────────────────────────",
-        f"🎯 <b>Default Trade Size:</b> <code>{config.DEFAULT_TRADE_AMOUNT_SOL:.2f} SOL</code>",
-        f"🛡️ <b>Exit Strategy:</b> <code>{config.DEFAULT_EXIT_STRATEGY}</code>",
-        f"🤖 <b>Autopilot State:</b> <code>{'ACTIVE 🟢' if autopilot.is_running else 'STOPPED ⚪'}</code>",
-        "───────────────────────────────",
-        "🔒 <b>Security Note:</b> The AI Council bot holds <b>ZERO private keys</b>. Cold Moonbag Vault is immune to server compromise.",
+        "🔒 <b>Security Note:</b> Chatters AI Council bot operates via secure RPC and stores <b>zero private keys</b>.",
     ])
 
     if is_online and sol_bal < config.DEFAULT_TRADE_AMOUNT_SOL:
         lines.append(
-            f"\n⚠️ <i>Warning: Hot wallet balance is below default trade amount ({config.DEFAULT_TRADE_AMOUNT_SOL} SOL). "
+            f"\n⚠️ <i>Warning: Wallet balance is below default trade amount ({config.DEFAULT_TRADE_AMOUNT_SOL} SOL). "
             f"Deposit SOL to enable automated trade execution.</i>"
         )
 
@@ -494,11 +472,9 @@ async def security_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_count = len(config.ADMIN_USER_IDS)
     admin_ids_str = ", ".join(f"<code>{uid}</code>" for uid in config.ADMIN_USER_IDS) if admin_count > 0 else "<i>Warning: None configured (open group mode)</i>"
 
-    moonbag_vault = config.get_moonbag_wallet()
-    moonbag_status = f"<code>{moonbag_vault[:6]}...{moonbag_vault[-4:]}</code> 🟢" if moonbag_vault else "Not set (/setmoonbag) ⚠️"
-
     wallet_info = await MSnifferExecutor.get_wallet_status()
     hot_status = "Online 🟢" if wallet_info.get("online") else "Offline 🔴"
+    trading_wallet = wallet_info.get("wallet", "Unavailable")
 
     text = (
         "🛡️ <b>CHATTERS AI COUNCIL SECURITY & HARDENING REPORT</b>\n"
@@ -509,16 +485,17 @@ async def security_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <b>Group Chat Security:</b> Unauthorized group participants cannot trigger trades or change settings.\n\n"
         "<b>2. PRIVATE KEY ISOLATION (ZERO-KNOWLEDGE):</b>\n"
         "• <b>Council Bot:</b> 0 private keys stored in code, logs, or disk.\n"
-        f"• <b>Hot Trading Wallet:</b> Isolated in local daemon (RPC only) | Status: {hot_status}\n"
-        f"• <b>Cold Moonbag Vault:</b> {moonbag_status} | 100% offline & immune to bot exploits.\n\n"
+        f"• <b>Hot Trading Wallet:</b> Isolated in Market Sniffer daemon ({hot_status})\n"
+        f"• <b>Public Address:</b> <code>{trading_wallet}</code>\n\n"
         "<b>3. ANTI-RUG & HONEYPOT DEFENSE:</b>\n"
         "• <b>Mint Authority Check:</b> Must be REVOKED before consensus buy.\n"
         "• <b>Freeze Authority Check:</b> Must be REVOKED (prevents honeypot locks).\n"
         "• <b>Liquidity Gate:</b> Enforces minimum pool depth ($10k-$50k+) & DEX lock.\n"
         "• <b>Whale Concentration:</b> Checks Top 10 holder supply percentage.\n\n"
-        "<b>4. EXIT & CAPITAL PRESERVATION:</b>\n"
-        "• <b>Dual-Tranche Moonbag:</b> Takes profit on 50% at +50% gain to secure initial capital; 50% runs risk-free forever.\n"
-        f"• <b>Hard Stop-Loss:</b> Automatic cut at <code>-{config.STOP_LOSS_PCT:.0f}%</code> to prevent drawdowns.\n"
+        "<b>4. CAPITAL PRESERVATION & SMART RUNNER RATCHET:</b>\n"
+        f"• <b>Hard Stop-Loss:</b> Cuts immediately at <code>-{config.STOP_LOSS_PCT:.0f}%</code> to prevent drawdowns.\n"
+        f"• <b>Breakeven Lock:</b> Once price hits <code>+{config.BREAKEVEN_PROFIT_PCT:.0f}%</code>, stop-loss jumps to Entry ($0 loss floor).\n"
+        f"• <b>Trailing Peak Ratchet:</b> Trails highest peak price by <code>-{config.TRAILING_STOP_PCT:.0f}%</code> for uncapped 10x-100x runs.\n"
         "───────────────────────────────\n"
         "<i>Your trading environment is fully hardened and protected against unauthorized triggers.</i>"
     )
@@ -537,15 +514,14 @@ def build_portfolio_keyboard(open_pos: List[Any]) -> InlineKeyboardMarkup:
     if len(open_pos) == 1:
         p = open_pos[0]
         rows.append([
-            InlineKeyboardButton("⚡ Scalp + 💎 Moonbag (50/50)", callback_data=f"posstrat:{p.mint}:dual"),
-        ])
-        rows.append([
-            InlineKeyboardButton("⚡ 50% Scalp", callback_data=f"posstrat:{p.mint}:50"),
-            InlineKeyboardButton("🎯 100% (2x)", callback_data=f"posstrat:{p.mint}:2x"),
-            InlineKeyboardButton("🚀 Runner", callback_data=f"posstrat:{p.mint}:runner"),
-        ])
-        rows.append([
+            InlineKeyboardButton("🚀 Smart Runner", callback_data=f"posstrat:{p.mint}:runner"),
             InlineKeyboardButton("💎 Diamond Hold", callback_data=f"posstrat:{p.mint}:hold"),
+        ])
+        rows.append([
+            InlineKeyboardButton("🎯 Fixed 2x", callback_data=f"posstrat:{p.mint}:2x"),
+            InlineKeyboardButton("⚡ 50% Scalp", callback_data=f"posstrat:{p.mint}:50"),
+        ])
+        rows.append([
             InlineKeyboardButton("🔴 Sell 100% Now", callback_data=f"possell:{p.mint}"),
         ])
     else:
@@ -562,22 +538,21 @@ def build_portfolio_keyboard(open_pos: List[Any]) -> InlineKeyboardMarkup:
 
 def build_token_manage_keyboard(mint: str) -> InlineKeyboardMarkup:
     """Builds interactive inline keyboard for managing exit mode of a specific token."""
-    row0 = [
-        InlineKeyboardButton("⚡ Scalp + 💎 Moonbag (50/50)", callback_data=f"posstrat:{mint}:dual"),
-    ]
     row1 = [
-        InlineKeyboardButton("⚡ 50% Scalp", callback_data=f"posstrat:{mint}:50"),
-        InlineKeyboardButton("🎯 100% (2x)", callback_data=f"posstrat:{mint}:2x"),
-        InlineKeyboardButton("🚀 Runner", callback_data=f"posstrat:{mint}:runner"),
+        InlineKeyboardButton("🚀 Smart Runner", callback_data=f"posstrat:{mint}:runner"),
+        InlineKeyboardButton("💎 Diamond Hold", callback_data=f"posstrat:{mint}:hold"),
     ]
     row2 = [
-        InlineKeyboardButton("💎 Diamond Hold", callback_data=f"posstrat:{mint}:hold"),
-        InlineKeyboardButton("🔴 Sell 100% Now", callback_data=f"possell:{mint}"),
+        InlineKeyboardButton("🎯 Fixed 2x", callback_data=f"posstrat:{mint}:2x"),
+        InlineKeyboardButton("⚡ 50% Scalp", callback_data=f"posstrat:{mint}:50"),
     ]
     row3 = [
+        InlineKeyboardButton("🔴 Sell 100% Now", callback_data=f"possell:{mint}"),
+    ]
+    row4 = [
         InlineKeyboardButton("🔙 Back to Portfolio", callback_data="menu:portfolio"),
     ]
-    return InlineKeyboardMarkup([row0, row1, row2, row3])
+    return InlineKeyboardMarkup([row1, row2, row3, row4])
 
 
 async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -703,34 +678,24 @@ async def exitmode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         val = args[0].strip().lower()
-        if val in ("dual", "split", "moonbag", "dual_split", "both"):
-            config.DEFAULT_EXIT_STRATEGY = "DUAL_SPLIT"
-            await update.message.reply_text(
-                "⚡💎 <b>Default Exit Strategy Set to DUAL SCALP + MOONBAG (50/50)</b>\n\n"
-                "• <b>Tranche 1 (50% Scalp):</b> Sells 50% at +50% gain to bank profit and fully recover your original SOL capital!\n"
-                "• <b>Tranche 2 (50% Moonbag):</b> Remaining 50% converts to an indefinite diamond-hands moonbag. Never auto-sold!\n"
-                "• <b>Capital Protection:</b> Stop-loss cut at -25% before scalp is banked.\n"
-                "• <b>Result:</b> 100% risk-free ride on generational 100x+ runners with initial capital safe!",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-        elif val in ("50", "50%", "scalp", "quick", "tiny"):
-            config.DEFAULT_EXIT_STRATEGY = "50PCT_TAKE_PROFIT"
-            await update.message.reply_text(
-                "⚡ <b>Default Exit Strategy Set to QUICK 50% SCALP (+50.0%)</b>\n\n"
-                "• Automatically takes profit and sells 100% when position gains +50%.\n"
-                "• Perfect for safe flips or volatile market conditions to cut risk.\n"
-                f"• Stop-loss cuts at -{config.STOP_LOSS_PCT:.0f}% if price drops.",
-                parse_mode=ParseMode.HTML,
-            )
-            return
-        elif val in ("runner", "long", "trail", "trailing"):
+        if val in ("runner", "smart", "trail", "trailing", "long"):
             config.DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
             await update.message.reply_text(
-                f"🚀 <b>Default Exit Strategy Set to LONG RUNNER MODE</b>\n\n"
-                f"• Positions can climb indefinitely to 5x-100x without premature selling.\n"
-                f"• Once in profit (>= +50%), it trails the highest peak price by -{config.TRAILING_STOP_PCT:.0f}% (wider margin for memecoin breathing room).\n"
-                f"• Stop-loss cuts at -{config.STOP_LOSS_PCT:.0f}% to protect initial capital.",
+                "🚀 <b>Default Exit Strategy Set to SMART RUNNER</b>\n\n"
+                f"• <b>1. Initial Protection:</b> Hard stop-loss cut at -{config.STOP_LOSS_PCT:.0f}% if price drops.\n"
+                f"• <b>2. Breakeven Lock:</b> Once token reaches +{config.BREAKEVEN_PROFIT_PCT:.0f}%, stop-loss jumps to Entry ($0 loss floor).\n"
+                f"• <b>3. Uncapped Runner:</b> Rides 5x-100x runs! Trails peak price by -{config.TRAILING_STOP_PCT:.0f}% after +50%.\n"
+                "• <b>Result:</b> Minimizes losses, locks in breakeven, and never cuts winners short!",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif val in ("hold", "diamond", "diamond_hold", "indefinite"):
+            config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE"
+            await update.message.reply_text(
+                "💎 <b>Default Exit Strategy Set to DIAMOND HOLD</b>\n\n"
+                "• The bot will hold purchased tokens indefinitely without any auto-selling.\n"
+                "• Perfect for pure conviction investments where you decide when to sell.\n"
+                "• Manually exit anytime by typing: <code>/sell &lt;CA&gt; [pct]</code>.",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -738,44 +703,42 @@ async def exitmode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             config.DEFAULT_EXIT_STRATEGY = "2X_TAKE_PROFIT"
             await update.message.reply_text(
                 f"🎯 <b>Default Exit Strategy Set to FIXED 2X TAKE-PROFIT (+100%)</b>\n\n"
-                f"• Automatically sells and locks in profit as soon as the token doubles in value (2x return / +100% gain).\n"
+                f"• Automatically sells 100% as soon as token doubles (2x return / +100% gain).\n"
                 f"• Stop-loss cuts at -{config.STOP_LOSS_PCT:.0f}% if price drops.",
                 parse_mode=ParseMode.HTML,
             )
             return
-        elif val in ("hold", "diamond"):
-            config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE"
+        elif val in ("50", "50%", "scalp", "quick", "tiny"):
+            config.DEFAULT_EXIT_STRATEGY = "50PCT_TAKE_PROFIT"
             await update.message.reply_text(
-                "💎 <b>Default Exit Strategy Set to HOLD INDEFINITELY</b>\n\n"
-                "Autonomous and manual trades will hold tokens indefinitely without auto-selling.\n"
-                "You can manually exit anytime using <code>/sell &lt;CA&gt; [pct]</code>.",
+                f"⚡ <b>Default Exit Strategy Set to QUICK 50% SCALP (+50.0%)</b>\n\n"
+                f"• Automatically sells 100% as soon as token gains +50%.\n"
+                f"• Stop-loss cuts at -{config.STOP_LOSS_PCT:.0f}% if price drops.",
                 parse_mode=ParseMode.HTML,
             )
             return
 
-    if config.DEFAULT_EXIT_STRATEGY == "DUAL_SPLIT":
-        current_strat = "⚡ SCALP + 💎 MOONBAG (50% Sold at Target / 50% Held Indefinitely)"
-    elif config.DEFAULT_EXIT_STRATEGY == "TRAILING_RUNNER":
-        current_strat = f"🚀 LONG RUNNER (Trail peak -{config.TRAILING_STOP_PCT:.0f}%)"
+    if config.DEFAULT_EXIT_STRATEGY == "TRAILING_RUNNER":
+        current_strat = f"🚀 SMART RUNNER (-{config.STOP_LOSS_PCT:.0f}% SL / Breakeven / Trail)"
+    elif config.DEFAULT_EXIT_STRATEGY == "HOLD_INDEFINITE":
+        current_strat = "💎 DIAMOND HOLD (Never Auto-Sells)"
     elif config.DEFAULT_EXIT_STRATEGY == "50PCT_TAKE_PROFIT":
         current_strat = "⚡ QUICK 50% SCALP (+50.0%)"
     elif config.DEFAULT_EXIT_STRATEGY in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
         current_strat = "🎯 FIXED 2X TAKE-PROFIT (+100.0%)"
     else:
-        current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)"
+        current_strat = "🚀 SMART RUNNER"
 
     text = (
         "🛡️ <b>COUNCIL EXIT STRATEGY CONTROLLER</b>\n"
         "───────────────────────────────\n"
         f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n"
-        f"⚡💎 <b>Scalp + Moonbag:</b> Sells 50% at +50% target; holds 50% indefinitely for 100x runs!\n"
+        f"🚀 <b>Smart Runner:</b> -{config.STOP_LOSS_PCT:.0f}% SL → Breakeven at +{config.BREAKEVEN_PROFIT_PCT:.0f}% → Trails peak -{config.TRAILING_STOP_PCT:.0f}% for 10x-100x!\n"
+        f"💎 <b>Diamond Hold:</b> Never auto-sells; pure manual /sell exit\n"
+        f"🎯 <b>Fixed 2x Mode:</b> Auto-exits 100% of bag at <code>+100.0%</code> (2x return)\n"
         f"⚡ <b>50% Scalp Mode:</b> Banks profit on entire bag at <code>+50.0%</code>\n"
-        f"🎯 <b>Fixed 2x Mode:</b> Auto-exits entire bag at <code>+100.0%</code> (2x return)\n"
-        f"🚀 <b>Long Runner Mode:</b> Rides 5x-100x; trails peak by <code>-{config.TRAILING_STOP_PCT:.0f}%</code>\n"
-        f"💎 <b>Hold Indefinitely:</b> Pure diamond hands; never auto-sells\n"
-        f"📉 <b>Stop-Loss Cut:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
         "───────────────────────────────\n"
-        "<i>Tap a strategy below to switch the default mode for both autonomous and manual trades:</i>"
+        "<i>Tap a strategy below to switch the default mode for future trades:</i>"
     )
     await update.message.reply_text(
         text,
@@ -1714,26 +1677,25 @@ def build_vault_keyboard() -> InlineKeyboardMarkup:
 def build_exitmode_keyboard() -> InlineKeyboardMarkup:
     """Builds interactive inline keyboard for toggling Council default exit strategy."""
     strat = config.DEFAULT_EXIT_STRATEGY
-    dual_label = "⚡ Scalp + 💎 Moonbag (50/50) ✅" if strat == "DUAL_SPLIT" else "⚡ Scalp + 💎 Moonbag (50/50)"
-    scalp_label = "⚡ 50% Scalp ✅" if strat == "50PCT_TAKE_PROFIT" else "⚡ 50% Scalp"
-    two_x_label = "🎯 Fixed 2x (100%) ✅" if strat in ("2X_TAKE_PROFIT", "AUTO_EXIT") else "🎯 Fixed 2x (100%)"
-    runner_label = f"🚀 Long Runner (-{config.TRAILING_STOP_PCT:.0f}%) ✅" if strat == "TRAILING_RUNNER" else f"🚀 Long Runner (-{config.TRAILING_STOP_PCT:.0f}%)"
-    hold_label = "💎 Hold Indefinite ✅" if strat == "HOLD_INDEFINITE" else "💎 Hold Indefinite"
-    row0 = [
-        InlineKeyboardButton(dual_label, callback_data="setstrat:dual"),
-    ]
+    runner_label = f"🚀 Smart Runner (-{config.STOP_LOSS_PCT:.0f}% SL / Trail) ✅" if strat == "TRAILING_RUNNER" else f"🚀 Smart Runner (-{config.STOP_LOSS_PCT:.0f}% SL / Trail)"
+    hold_label = "💎 Diamond Hold (Manual Exit) ✅" if strat == "HOLD_INDEFINITE" else "💎 Diamond Hold (Manual Exit)"
+    two_x_label = "🎯 Fixed 2x (+100%) ✅" if strat in ("2X_TAKE_PROFIT", "AUTO_EXIT") else "🎯 Fixed 2x (+100%)"
+    scalp_label = "⚡ 50% Scalp (+50%) ✅" if strat == "50PCT_TAKE_PROFIT" else "⚡ 50% Scalp (+50%)"
+
     row1 = [
-        InlineKeyboardButton(scalp_label, callback_data="setstrat:50"),
-        InlineKeyboardButton(two_x_label, callback_data="setstrat:2x"),
+        InlineKeyboardButton(runner_label, callback_data="setstrat:runner"),
     ]
     row2 = [
-        InlineKeyboardButton(runner_label, callback_data="setstrat:runner"),
         InlineKeyboardButton(hold_label, callback_data="setstrat:hold"),
     ]
     row3 = [
+        InlineKeyboardButton(two_x_label, callback_data="setstrat:2x"),
+        InlineKeyboardButton(scalp_label, callback_data="setstrat:50"),
+    ]
+    row4 = [
         InlineKeyboardButton("🔙 Back to Menu", callback_data="menu:main"),
     ]
-    return InlineKeyboardMarkup([row0, row1, row2, row3])
+    return InlineKeyboardMarkup([row1, row2, row3, row4])
 
 
 async def invest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2124,27 +2086,30 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         elif choice == "modes":
             strat = config.DEFAULT_EXIT_STRATEGY
-            if strat == "DUAL_SPLIT":
-                current_strat = "⚡ SCALP + 💎 MOONBAG (50% Sold at Target / 50% Held Indefinitely)"
-            elif strat == "TRAILING_RUNNER":
-                current_strat = f"🚀 LONG RUNNER (Trail peak -{config.TRAILING_STOP_PCT:.0f}%)"
+            if strat == "TRAILING_RUNNER":
+                current_strat = f"🚀 SMART RUNNER (Stop -{config.STOP_LOSS_PCT:.0f}% ➔ Breakeven ➔ Trail -{config.TRAILING_STOP_PCT:.0f}%)"
+            elif strat == "HOLD_INDEFINITE":
+                current_strat = "💎 DIAMOND HOLD (Hold Indefinitely / Manual Exit)"
             elif strat == "50PCT_TAKE_PROFIT":
                 current_strat = "⚡ QUICK 50% SCALP (+50.0%)"
             elif strat in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
                 current_strat = "🎯 FIXED 2X TAKE-PROFIT (+100.0%)"
             else:
-                current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)"
+                current_strat = "🚀 SMART RUNNER"
 
             text = (
                 "🛡️ <b>COUNCIL EXIT STRATEGY CONTROLLER</b>\n"
                 "───────────────────────────────\n"
-                f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n"
-                f"⚡💎 <b>Scalp + Moonbag:</b> Sells 50% at +50% target; holds 50% indefinitely for 100x runs!\n"
-                f"⚡ <b>50% Scalp Mode:</b> Banks profit on entire bag at <code>+50.0%</code>\n"
-                f"🎯 <b>Fixed 2x Mode:</b> Auto-exits entire bag at <code>+100.0%</code> (2x return)\n"
-                f"🚀 <b>Long Runner Mode:</b> Rides 5x-100x; trails peak by <code>-{config.TRAILING_STOP_PCT:.0f}%</code>\n"
-                f"💎 <b>Hold Indefinitely:</b> Pure diamond hands; never auto-sells\n"
-                f"📉 <b>Stop-Loss Cut:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
+                f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n\n"
+                f"🚀 <b>Smart Runner (Recommended):</b>\n"
+                f"• Hard Stop-Loss cut at <code>-{config.STOP_LOSS_PCT:.0f}%</code> to protect capital if token flops.\n"
+                f"• Stop-loss automatically jumps to <b>Breakeven ($0 Loss Floor)</b> once price hits <code>+{config.BREAKEVEN_PROFIT_PCT:.0f}%</code>.\n"
+                f"• Rides 5x-100x+ runners uncapped; trails peak price by <code>-{config.TRAILING_STOP_PCT:.0f}%</code>.\n\n"
+                f"💎 <b>Diamond Hold:</b>\n"
+                "• Pure conviction holding; bot NEVER auto-sells.\n"
+                "• Ride long-term runners and exit manually anytime with <code>/sell &lt;CA&gt;</code>.\n\n"
+                f"🎯 <b>Fixed 2x Mode:</b> Auto-exits 100% of bag at <code>+100.0%</code> (Doubler)\n"
+                f"⚡ <b>50% Scalp Mode:</b> Quick safe exit at <code>+50.0%</code> profit\n"
                 "───────────────────────────────\n"
                 "<i>Tap a strategy below to switch the default mode for future trades:</i>"
             )
@@ -2162,7 +2127,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             open_pos = position_manager.get_open_positions()
             summary = position_manager.get_summary_text()
             if open_pos:
-                summary += "\n\n<i>Tap a token below to change its exit target (50%, 2x, runner, hold) or sell immediately:</i>"
+                summary += "\n\n<i>Tap a token below to change its exit strategy (Runner, Hold, 2x, Scalp) or sell immediately:</i>"
             try:
                 await query.edit_message_text(
                     text=summary,
@@ -2195,22 +2160,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             status_icon = "🟢 Online" if is_online else "🔴 Offline"
             pubkey = wallet_info.get("wallet", "Unavailable")
             sol_bal = wallet_info.get("sol_balance", 0.0)
-            moonbag_vault = config.get_moonbag_wallet()
-            moonbag_display = f"<code>{moonbag_vault}</code>" if moonbag_vault else "<i>Not Set (Use /setmoonbag &lt;addr&gt;)</i>"
 
             text = (
-                "💳 <b>COUNCIL TWO-WALLET ARCHITECTURE</b>\n"
+                "💳 <b>COUNCIL TRADING WALLET</b>\n"
                 "───────────────────────────────\n"
-                "🔥 <b>Primary Hot Trading Wallet (Market Sniffer):</b>\n"
+                "🔥 <b>Market Sniffer Trading Wallet:</b>\n"
                 f"• <b>Status:</b> {status_icon}\n"
                 f"• <b>Address:</b> <code>{pubkey}</code>\n"
                 f"• <b>Balance:</b> <code>{sol_bal:.4f} SOL</code>\n"
-                f"• <b>Role:</b> Active entries & automated scalps\n\n"
-                "💎 <b>Secondary Cold Moonbag Vault:</b>\n"
-                f"• <b>Address:</b> {moonbag_display}\n"
-                f"• <b>Role:</b> Safe vault for generational runners (Never auto-sold)\n"
+                f"• <b>Default Buy Size:</b> <code>{config.DEFAULT_TRADE_AMOUNT_SOL} SOL</code>\n"
                 "───────────────────────────────\n"
-                "🔒 <b>Security Note:</b> Bot holds ZERO private keys. Moonbag vault is 100% offline & immune to exploits."
+                "🔒 <b>Security Note:</b> Chatters bot holds ZERO private keys. All transactions are securely routed through Market Sniffer daemon with strict safety limits."
             )
             markup = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Refresh", callback_data="menu:wallet"), InlineKeyboardButton("🔙 Back to Menu", callback_data="menu:main")]
@@ -2224,10 +2184,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif choice == "security":
             admin_count = len(config.ADMIN_USER_IDS)
             admin_ids_str = ", ".join(f"<code>{uid}</code>" for uid in config.ADMIN_USER_IDS) if admin_count > 0 else "<i>Warning: None configured (open group mode)</i>"
-            moonbag_vault = config.get_moonbag_wallet()
-            moonbag_status = f"<code>{moonbag_vault[:6]}...{moonbag_vault[-4:]}</code> 🟢" if moonbag_vault else "Not set (/setmoonbag) ⚠️"
             wallet_info = await MSnifferExecutor.get_wallet_status()
             hot_status = "Online 🟢" if wallet_info.get("online") else "Offline 🔴"
+            trading_wallet = wallet_info.get("wallet", "Unavailable")
 
             text = (
                 "🛡️ <b>CHATTERS AI COUNCIL SECURITY & HARDENING</b>\n"
@@ -2237,16 +2196,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "• <b>Execution Guard:</b> Only admins can run trades, <code>-exe</code>, <code>-dve</code>, or <code>-auto</code>.\n\n"
                 "<b>2. PRIVATE KEY ISOLATION:</b>\n"
                 "• <b>Council Bot:</b> 0 private keys stored anywhere.\n"
-                f"• <b>Hot Wallet:</b> Isolated in Market Sniffer daemon ({hot_status})\n"
-                f"• <b>Cold Moonbag Vault:</b> {moonbag_status} (Never exposed)\n\n"
+                f"• <b>Trading Wallet:</b> Isolated in Market Sniffer daemon ({hot_status})\n"
+                f"• <b>Public Address:</b> <code>{trading_wallet}</code>\n\n"
                 "<b>3. ANTI-RUG & HONEYPOT FILTERS:</b>\n"
                 "• Mint & Freeze Authority MUST be REVOKED.\n"
                 "• Minimum DEX liquidity depth verified before buy.\n"
                 "• Holder supply concentration audited.\n\n"
-                "<b>4. DUAL-TRANCHE RISK MANAGEMENT:</b>\n"
-                "• 50% sold at +50% target to bank profit & recover initial SOL.\n"
-                "• 50% moonbag held indefinitely for generational 100x+ runs.\n"
-                f"• Stop-loss cuts at <code>-{config.STOP_LOSS_PCT:.0f}%</code> to protect capital.\n"
+                "<b>4. CAPITAL PRESERVATION & SMART RUNNER RATCHET:</b>\n"
+                f"• Stop-Loss cut at <code>-{config.STOP_LOSS_PCT:.0f}%</code> to protect principal.\n"
+                f"• Breakeven Ratchet locks at <code>+{config.BREAKEVEN_PROFIT_PCT:.0f}%</code> gain ($0 loss floor).\n"
+                f"• Trailing Peak Ratchet (<code>-{config.TRAILING_STOP_PCT:.0f}%</code>) lets 10x-100x runners climb indefinitely.\n"
                 "───────────────────────────────"
             )
             markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu:main")]])
@@ -2266,12 +2225,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 "<b>2️⃣ Deliberate:</b>\n"
                 "• 5 AI agents analyze security, liquidity, and volume to vote.\n\n"
                 "<b>3️⃣ Buy & Exit Strategies:</b>\n"
-                "• <b>⚡💎 Scalp + Moonbag:</b> Sells 50% at +50% to recover initial SOL; holds 50% forever for 100x runs!\n"
-                "• <b>⚡ 50% Scalp:</b> Auto-sells 100% of bag at +50% gain.\n"
-                "• <b>🎯 2x Double:</b> Auto-sells 100% of bag at +100% gain.\n"
-                "• <b>🚀 Runner:</b> Trails peak by 25% once above +50%.\n"
-                "• <b>💎 Hold:</b> Diamond hands indefinite holding.\n"
-                f"• <b>📉 Stop-Loss:</b> Cuts at -{config.STOP_LOSS_PCT:.0f}% to protect capital.\n"
+                "• <b>🚀 Smart Runner (Default):</b> -20% stop-loss ➔ Breakeven lock at +30% ➔ Trails peak by 25% for 10x-100x runs!\n"
+                "• <b>💎 Diamond Hold:</b> Conviction holding, zero auto-sells. Exit manually via /sell.\n"
+                "• <b>🎯 Fixed 2x:</b> Auto-exits 100% of bag at +100% gain.\n"
+                "• <b>⚡ 50% Scalp:</b> Quick exit 100% of bag at +50% gain.\n"
                 "───────────────────────────────"
             )
             markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu:main")]])
@@ -2290,16 +2247,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
-        if pos.exit_strategy == "DUAL_SPLIT":
-            strat_desc = "⚡ SCALP + 💎 MOONBAG (50/50)"
+        if pos.exit_strategy == "TRAILING_RUNNER":
+            strat_desc = f"🚀 SMART RUNNER (-{config.STOP_LOSS_PCT:.0f}% SL / Breakeven / Trail)"
         elif pos.exit_strategy == "HOLD_INDEFINITE":
-            strat_desc = "💎 HOLD INDEFINITELY"
-        elif pos.exit_strategy == "TRAILING_RUNNER":
-            strat_desc = f"🚀 LONG RUNNER (-{config.TRAILING_STOP_PCT:.0f}% trail)"
+            strat_desc = "💎 DIAMOND HOLD (Never Auto-Sells)"
         elif pos.exit_strategy in ("50PCT_TAKE_PROFIT", "SCALP_50"):
             strat_desc = "⚡ QUICK 50% SCALP (+50.0%)"
-        else:
+        elif pos.exit_strategy in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
             strat_desc = "🎯 FIXED 2X (+100.0%)"
+        else:
+            strat_desc = "🚀 SMART RUNNER"
 
         text = (
             f"⚙️ <b>MANAGE TOKEN: {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)</b>\n"
@@ -2309,7 +2266,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             f"📈 <b>Live PnL:</b> <b>{pnl_badge}</b>\n"
             f"🛡️ <b>Active Exit Target:</b> <code>{strat_desc}</code>\n"
             f"───────────────────────────────\n"
-            f"<i>Tap below to switch this token's exit target (50%, 2x, runner, hold) or sell immediately:</i>"
+            f"<i>Tap below to switch this token's exit target (Smart Runner, Diamond Hold, 2x, 50%) or sell immediately:</i>"
         )
         try:
             await query.edit_message_text(
@@ -2326,21 +2283,21 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if len(parts) >= 3:
             mint = parts[1]
             strat_code = parts[2].lower()
-            if strat_code in ("dual", "split", "moonbag"):
-                strat_name = "DUAL_SPLIT"
-                strat_human = "⚡ SCALP + 💎 MOONBAG (50/50)"
-            elif strat_code in ("50", "scalp"):
-                strat_name = "50PCT_TAKE_PROFIT"
-                strat_human = "⚡ QUICK 50% SCALP (+50.0%)"
+            if strat_code in ("r", "runner", "smart"):
+                strat_name = "TRAILING_RUNNER"
+                strat_human = f"🚀 SMART RUNNER (-{config.STOP_LOSS_PCT:.0f}% SL / Breakeven / Trail)"
+            elif strat_code in ("h", "hold", "diamond"):
+                strat_name = "HOLD_INDEFINITE"
+                strat_human = "💎 DIAMOND HOLD (Never Auto-Sells, Manual exit only)"
             elif strat_code in ("2x", "double", "100"):
                 strat_name = "2X_TAKE_PROFIT"
                 strat_human = "🎯 FIXED 2X (+100.0%)"
-            elif strat_code in ("r", "runner", "trail"):
-                strat_name = "TRAILING_RUNNER"
-                strat_human = f"🚀 LONG RUNNER (-{config.TRAILING_STOP_PCT:.0f}% trail)"
+            elif strat_code in ("50", "scalp"):
+                strat_name = "50PCT_TAKE_PROFIT"
+                strat_human = "⚡ QUICK 50% SCALP (+50.0%)"
             else:
-                strat_name = "HOLD_INDEFINITE"
-                strat_human = "💎 HOLD INDEFINITELY"
+                strat_name = "TRAILING_RUNNER"
+                strat_human = "🚀 SMART RUNNER"
 
             ok, msg = position_manager.set_position_strategy(mint, strat_name)
             pos = position_manager.positions.get(mint)
@@ -2572,38 +2529,36 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         parts = data.split(":")
         if len(parts) >= 2:
             code = parts[1].lower()
-            if code in ("dual", "split", "moonbag", "dual_split"):
-                config.DEFAULT_EXIT_STRATEGY = "DUAL_SPLIT"
-            elif code in ("50", "scalp"):
-                config.DEFAULT_EXIT_STRATEGY = "50PCT_TAKE_PROFIT"
-            elif code in ("r", "runner"):
+            if code in ("r", "runner", "smart"):
                 config.DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
+            elif code in ("h", "hold", "diamond"):
+                config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE"
             elif code in ("2x", "a", "auto", "100"):
                 config.DEFAULT_EXIT_STRATEGY = "2X_TAKE_PROFIT"
+            elif code in ("50", "scalp"):
+                config.DEFAULT_EXIT_STRATEGY = "50PCT_TAKE_PROFIT"
             else:
-                config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE"
+                config.DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
 
-            if config.DEFAULT_EXIT_STRATEGY == "DUAL_SPLIT":
-                current_strat = "⚡ SCALP + 💎 MOONBAG (50% Sold at Target / 50% Held Indefinitely)"
-            elif config.DEFAULT_EXIT_STRATEGY == "TRAILING_RUNNER":
-                current_strat = f"🚀 LONG RUNNER (Trail peak -{config.TRAILING_STOP_PCT:.0f}%)"
+            if config.DEFAULT_EXIT_STRATEGY == "TRAILING_RUNNER":
+                current_strat = f"🚀 SMART RUNNER (-{config.STOP_LOSS_PCT:.0f}% SL / Breakeven / Trail)"
+            elif config.DEFAULT_EXIT_STRATEGY == "HOLD_INDEFINITE":
+                current_strat = "💎 DIAMOND HOLD (Never Auto-Sells)"
             elif config.DEFAULT_EXIT_STRATEGY == "50PCT_TAKE_PROFIT":
                 current_strat = "⚡ QUICK 50% SCALP (+50.0%)"
             elif config.DEFAULT_EXIT_STRATEGY in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
                 current_strat = "🎯 FIXED 2X TAKE-PROFIT (+100.0%)"
             else:
-                current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)"
+                current_strat = "🚀 SMART RUNNER"
 
             text = (
                 "🛡️ <b>COUNCIL EXIT STRATEGY CONTROLLER</b>\n"
                 "───────────────────────────────\n"
                 f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n"
-                f"⚡💎 <b>Scalp + Moonbag:</b> Sells 50% at +50% target; holds 50% indefinitely for 100x runs!\n"
+                f"🚀 <b>Smart Runner:</b> -{config.STOP_LOSS_PCT:.0f}% SL → Breakeven at +{config.BREAKEVEN_PROFIT_PCT:.0f}% → Trails peak -{config.TRAILING_STOP_PCT:.0f}% for 10x-100x!\n"
+                f"💎 <b>Diamond Hold:</b> Never auto-sells; pure manual /sell exit\n"
+                f"🎯 <b>Fixed 2x Mode:</b> Auto-exits 100% of bag at <code>+100.0%</code> (2x return)\n"
                 f"⚡ <b>50% Scalp Mode:</b> Banks profit on entire bag at <code>+50.0%</code>\n"
-                f"🎯 <b>Fixed 2x Mode:</b> Auto-exits entire bag at <code>+100.0%</code> (2x return)\n"
-                f"🚀 <b>Long Runner Mode:</b> Rides 5x-100x; trails peak by <code>-{config.TRAILING_STOP_PCT:.0f}%</code>\n"
-                f"💎 <b>Hold Indefinitely:</b> Pure diamond hands; never auto-sells\n"
-                f"📉 <b>Stop-Loss Cut:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
                 "───────────────────────────────\n"
                 "<i>Tap a strategy below to switch the default mode for future trades:</i>"
             )
@@ -2799,12 +2754,12 @@ async def post_init(application: Application):
     # Register simplified bot commands menu in Telegram UI
     bot_commands = [
         BotCommand("menu", "📱 Master Control Dashboard & 1-Click Buttons"),
-        BotCommand("mode", "🎯 Exit Mode (Scalp+Moonbag, 50% Scalp, 2x, Runner, Hold)"),
+        BotCommand("mode", "🎯 Exit Mode (Smart Runner, Diamond Hold, 2x, Scalp)"),
         BotCommand("portfolio", "📊 View Holdings & 1-Tap Token Exit Switcher"),
         BotCommand("buy", "⚡ Deliberate & Buy Token (/buy <CA> or paste CA)"),
         BotCommand("sell", "🔴 Sell Token Position (/sell <CA>)"),
         BotCommand("auto", "🤖 Autopilot Scanner (/auto on|off)"),
-        BotCommand("wallet", "💳 Two-Wallet Setup (Hot Trading + Cold Moonbag Vault)"),
+        BotCommand("wallet", "💳 Trading Wallet & SOL Balance"),
         BotCommand("security", "🛡️ Live Security Audit & Protection Status"),
         BotCommand("help", "📖 Simple 3-Step Guide"),
     ]
