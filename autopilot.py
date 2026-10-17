@@ -358,6 +358,8 @@ class AutopilotEngine:
                     mint = cand["mint"]
                     if mint in self.evaluated_mints:
                         continue
+                    if len(self.evaluated_mints) > 1000:
+                        self.evaluated_mints = set(list(self.evaluated_mints)[-500:])
                     self.evaluated_mints.add(mint)
 
                     # Strict background filter: liquidity > $10k, vol > $25k, momentum > +1%

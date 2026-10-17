@@ -11,6 +11,7 @@ Monitors tokens purchased by the Council:
 4. Persists state to data/positions.json
 """
 
+import html
 import json
 import logging
 import os
@@ -135,7 +136,9 @@ class PositionManager:
         pos.exit_strategy = strat
         self._save()
         desc = "💎 HOLD INDEFINITELY" if strat == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
-        return True, f"Updated strategy for <b>{pos.name}</b> (<code>${pos.symbol}</code>) to <b>{desc}</b>"
+        safe_name = html.escape(pos.name)
+        safe_sym = html.escape(pos.symbol)
+        return True, f"Updated strategy for <b>{safe_name}</b> (<code>${safe_sym}</code>) to <b>{desc}</b>"
 
     def update_price(self, mint: str, current_price_usd: float) -> Optional[Position]:
         """Updates live price, peak price, and PnL for a position."""
@@ -227,8 +230,10 @@ class PositionManager:
             pnl_badge = f"+{p.pnl_pct:.1f}% 🟢" if p.pnl_pct >= 0 else f"{p.pnl_pct:.1f}% 🔴"
             dex_url = f"https://dexscreener.com/solana/{p.mint}"
             strat_badge = "💎 HOLD" if p.exit_strategy == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
+            safe_name = html.escape(p.name)
+            safe_sym = html.escape(p.symbol)
             lines.append(
-                f"🪙 <b>{p.name}</b> (<code>${p.symbol}</code>)\n"
+                f"🪙 <b>{safe_name}</b> (<code>${safe_sym}</code>)\n"
                 f"  • Strategy: <b>{strat_badge}</b> | PnL: <b>{pnl_badge}</b>\n"
                 f"  • Entry: <code>${p.entry_price_usd:.6f}</code> | Current: <code>${p.current_price_usd:.6f}</code>\n"
                 f"  • Size: <code>{p.amount_sol:.2f} SOL</code> | Chart: <a href='{dex_url}'>DexScreener</a>\n"

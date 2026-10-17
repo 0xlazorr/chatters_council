@@ -27,7 +27,7 @@ socket.getaddrinfo = _getaddrinfo_ipv4_pref
 
 from telegram import Bot
 from telegram.constants import ChatAction, ParseMode
-from telegram.error import BadRequest, TelegramError
+from telegram.error import BadRequest, TelegramError, RetryAfter
 from telegram.request import HTTPXRequest
 
 from autogen_agentchat.agents import AssistantAgent
@@ -71,7 +71,13 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
         return ModelCapabilities(vision=False, function_calling=False, json_output=False)
 
     async def create(self, messages, tools=(), json_output=None, extra_create_args=None, cancellation_token=None):
-        last_msg = messages[-1].content if messages else ""
+        last_item = messages[-1] if messages else ""
+        if isinstance(last_item, dict):
+            last_msg = last_item.get("content", "")
+        elif hasattr(last_item, "content"):
+            last_msg = getattr(last_item, "content", "")
+        else:
+            last_msg = str(last_item)
         is_voting = "VOTE:" in str(last_msg).upper() or "VOTING" in str(last_msg).upper() or "VOTE ON" in str(last_msg).upper()
 
         if is_voting:
@@ -118,27 +124,133 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
 
 
 # =============================================================================
-# 2. MODEL CLIENT FACTORY
+# 2. RESILIENT OPENROUTER WRAPPER & MODEL CLIENT FACTORY
 # =============================================================================
+
+class ResilientCouncilModelClient(ChatCompletionClient):
+    """
+    Resilient wrapper around OpenAIChatCompletionClient that:
+    1. Retries transient OpenRouter / provider errors (429 rate limit, 500, 502, 503, 504, timeout) with exponential backoff.
+    2. Gracefully falls back to high-quality persona statement if upstream provider is completely down,
+       guaranteeing that one upstream model outage never crashes or blocks the AutoGen council session.
+    """
+
+    def __init__(
+        self,
+        inner_client: OpenAIChatCompletionClient,
+        agent_name: str,
+        role_description: str,
+        fallback_client: Optional[SimulatedCouncilModelClient] = None,
+    ):
+        self._inner = inner_client
+        self.agent_name = agent_name
+        self.role_description = role_description
+        self._fallback = fallback_client or SimulatedCouncilModelClient(agent_name, role_description)
+
+    @property
+    def model_info(self) -> ModelInfo:
+        return self._inner.model_info
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        return self._inner.capabilities
+
+    async def create(self, messages, tools=(), json_output=None, extra_create_args=None, cancellation_token=None):
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await self._inner.create(
+                    messages=messages,
+                    tools=tools,
+                    json_output=json_output,
+                    extra_create_args=extra_create_args,
+                    cancellation_token=cancellation_token,
+                )
+            except Exception as e:
+                err_str = str(e)
+                is_transient = any(
+                    code in err_str.lower()
+                    for code in ("429", "500", "502", "503", "504", "timeout", "timed out", "connection", "rate")
+                )
+                if is_transient and attempt < max_attempts:
+                    backoff = attempt * 1.5
+                    logger.warning(
+                        f"[{self.agent_name}] OpenRouter attempt #{attempt} transient error: {e}. "
+                        f"Retrying in {backoff:.1f}s..."
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                else:
+                    logger.error(
+                        f"[{self.agent_name}] OpenRouter request failed after {attempt} attempts ({e}). "
+                        f"Engaging resilient fallback response."
+                    )
+                    return await self._fallback.create(
+                        messages=messages,
+                        tools=tools,
+                        json_output=json_output,
+                        extra_create_args=extra_create_args,
+                        cancellation_token=cancellation_token,
+                    )
+
+    async def create_stream(self, messages, tools=(), json_output=None, extra_create_args=None, cancellation_token=None):
+        try:
+            async for chunk in self._inner.create_stream(
+                messages=messages,
+                tools=tools,
+                json_output=json_output,
+                extra_create_args=extra_create_args,
+                cancellation_token=cancellation_token,
+            ):
+                yield chunk
+        except Exception as e:
+            logger.error(f"[{self.agent_name}] OpenRouter streaming error: {e}. Engaging resilient fallback stream.")
+            fallback_res = await self._fallback.create(
+                messages=messages,
+                tools=tools,
+                json_output=json_output,
+                extra_create_args=extra_create_args,
+                cancellation_token=cancellation_token,
+            )
+            yield fallback_res.content
+
+    def actual_usage(self):
+        return self._inner.actual_usage()
+
+    def total_usage(self):
+        return self._inner.total_usage()
+
+    def count_tokens(self, messages, tools=()):
+        return self._inner.count_tokens(messages, tools)
+
+    def remaining_tokens(self, messages, tools=()):
+        return self._inner.remaining_tokens(messages, tools)
+
+    async def close(self):
+        await self._inner.close()
+
 
 def create_model_client(agent: config.AgentConfig) -> ChatCompletionClient:
     """
     Instantiates the AutoGen ChatCompletionClient for an agent via OpenRouter.
-    - If OPENROUTER_API_KEY is present: queries OpenRouter OpenAI-compatible endpoint.
+    - If OPENROUTER_API_KEY is present: queries OpenRouter OpenAI-compatible endpoint with Resilient wrapper.
     - If OPENROUTER_API_KEY is not set: uses SimulatedCouncilModelClient for zero-cost offline testing.
     """
     if config.OPENROUTER_API_KEY:
         logger.info(f"Using OpenRouter for agent {agent.name} (model: {agent.model})")
-        return OpenAIChatCompletionClient(
+        inner = OpenAIChatCompletionClient(
             model=agent.model,
             base_url=config.OPENROUTER_BASE_URL,
             api_key=config.OPENROUTER_API_KEY,
-            model_info=ModelInfo(vision=False, function_calling=True, json_output=True, structured_output=True, family="openai"),
+            model_info=ModelInfo(vision=False, function_calling=False, json_output=False, structured_output=False, family="unknown"),
             default_headers={
                 "HTTP-Referer": "https://telegram.org",
                 "X-Title": "Chatters AI Council",
             },
+            max_retries=3,
+            timeout=60.0,
         )
+        return ResilientCouncilModelClient(inner, agent.name, agent.role_description)
 
     # Fallback to Simulated Mode for local testing when key is not in .env
     logger.warning(
@@ -226,33 +338,48 @@ class TelegramAgentBroadcaster:
             if config.BOT_TYPING_DELAY_SECONDS > 0:
                 await asyncio.sleep(config.BOT_TYPING_DELAY_SECONDS)
 
-            # 2. Attempt sending with Markdown formatting
+            # 2. Attempt sending with Markdown formatting and error recovery
             sent = False
-            try:
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=chunk,
-                    parse_mode=ParseMode.MARKDOWN,
-                    reply_to_message_id=reply_to_message_id,
-                )
-                sent = True
-            except BadRequest as e:
-                # If markdown parsing fails due to unescaped symbols, fallback to plain text
-                logger.debug(f"Markdown send failed for {agent_name} ({e}); retrying as plain text.")
+            for attempt in range(2):
                 try:
                     await bot.send_message(
                         chat_id=chat_id,
                         text=chunk,
-                        parse_mode=None,
-                        reply_to_message_id=reply_to_message_id,
+                        parse_mode=ParseMode.MARKDOWN if attempt == 0 else None,
+                        reply_to_message_id=reply_to_message_id if attempt == 0 else None,
                     )
                     sent = True
-                except Exception as inner_e:
-                    logger.error(f"Failed to send plain text message for {agent_name}: {inner_e}")
-            except TelegramError as te:
-                logger.error(f"Telegram error sending message for {agent_name}: {te}")
-            except Exception as ex:
-                logger.error(f"Unexpected error broadcasting message for {agent_name}: {ex}")
+                    break
+                except RetryAfter as ra:
+                    wait_time = float(ra.retry_after or 1.0) + 0.5
+                    logger.warning(f"Telegram flood limit for {agent_name}. Sleeping {wait_time:.1f}s...")
+                    await asyncio.sleep(wait_time)
+                    try:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=chunk,
+                            parse_mode=None,
+                            reply_to_message_id=None,
+                        )
+                        sent = True
+                        break
+                    except Exception as e:
+                        logger.error(f"RetryAfter recovery failed for {agent_name}: {e}")
+                        break
+                except BadRequest as e:
+                    # Markdown syntax issue or reply_to_message_id was deleted/invalid
+                    logger.debug(
+                        f"Send attempt #{attempt + 1} failed for {agent_name} ({e}); "
+                        f"retrying as plain text without reply_to_message_id."
+                    )
+                    if attempt == 1:
+                        logger.error(f"Failed to send message for {agent_name} after retry: {e}")
+                except TelegramError as te:
+                    logger.error(f"Telegram error sending message for {agent_name}: {te}")
+                    break
+                except Exception as ex:
+                    logger.error(f"Unexpected error broadcasting message for {agent_name}: {ex}")
+                    break
 
             if not sent:
                 return False
@@ -316,28 +443,43 @@ class CouncilVoteSummary:
 def parse_agent_vote(agent_name: str, message_text: str) -> VoteResult:
     """
     Extracts structured VOTE: YES / NO from agent's output.
-    Looks for pattern 'VOTE: <YES|NO|ABSTAIN>'.
+    Supports standard (YES|NO|ABSTAIN) as well as crypto-native synonyms
+    (BUY|APPROVE|BULLISH -> YES, SELL|REJECT|BEARISH -> NO).
     """
     clean_text = message_text.strip()
-    match = re.search(r"VOTE\s*[*_`\s]*[:=]?[*_`\s]*(YES|NO|ABSTAIN)\b", clean_text, re.IGNORECASE)
+    match = re.search(
+        r"VOTE\s*[*_`\s]*[:=]?[*_`\s]*(YES|NO|ABSTAIN|BUY|SELL|APPROVE|REJECT|BULLISH|BEARISH)\b",
+        clean_text,
+        re.IGNORECASE,
+    )
 
     if match:
-        vote = match.group(1).upper()
-    else:
-        # Heuristic fallback: check last lines
-        lowered = clean_text.lower()
-        if "vote yes" in lowered or "i vote: yes" in lowered or "votes yes" in lowered:
+        raw_token = match.group(1).upper()
+        if raw_token in ("YES", "BUY", "APPROVE", "BULLISH"):
             vote = "YES"
-        elif "vote no" in lowered or "i vote: no" in lowered or "votes no" in lowered:
+        elif raw_token in ("NO", "SELL", "REJECT", "BEARISH"):
+            vote = "NO"
+        else:
+            vote = "ABSTAIN"
+    else:
+        # Heuristic fallback: check content
+        lowered = clean_text.lower()
+        if any(term in lowered for term in ("vote yes", "i vote: yes", "votes yes", "vote: buy", "i vote: buy", "recommend buy")):
+            vote = "YES"
+        elif any(term in lowered for term in ("vote no", "i vote: no", "votes no", "vote: sell", "i vote: sell", "recommend pass", "recommend avoid")):
             vote = "NO"
         elif "abstain" in lowered:
             vote = "ABSTAIN"
         else:
             vote = "ABSTAIN"
 
-    # Extract reasoning (lines before the VOTE: declaration)
+    # Extract reasoning (lines before/excluding the VOTE: declaration)
     lines = clean_text.splitlines()
-    reasoning_lines = [l for l in lines if not re.search(r"VOTE\s*[*_`\s]*[:=]?[*_`\s]*(YES|NO|ABSTAIN)\b", l, re.IGNORECASE)]
+    vote_line_regex = re.compile(
+        r"VOTE\s*[*_`\s]*[:=]?[*_`\s]*(YES|NO|ABSTAIN|BUY|SELL|APPROVE|REJECT|BULLISH|BEARISH)\b",
+        re.IGNORECASE,
+    )
+    reasoning_lines = [l for l in lines if not vote_line_regex.search(l)]
     reasoning = "\n".join(reasoning_lines).strip()
 
     return VoteResult(

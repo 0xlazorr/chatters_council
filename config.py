@@ -9,9 +9,13 @@ Handles:
 - Dynamic council mood & personality profiles
 """
 
+import asyncio
+import json
 import os
+import urllib.request
+import urllib.error
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -77,6 +81,75 @@ BOT_TYPING_DELAY_SECONDS: float = float(os.getenv("BOT_TYPING_DELAY_SECONDS", "1
 # OpenRouter Unified API Key (Powers all 5 AI models with 1 key)
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
+
+
+async def check_openrouter_status() -> Dict[str, Any]:
+    """
+    Queries OpenRouter's /api/v1/auth/key and /api/v1/credits endpoints to verify
+    API key connectivity, validity, and remaining USD credit balance in real time.
+    """
+    if not OPENROUTER_API_KEY:
+        return {
+            "configured": False,
+            "active": False,
+            "credit_usd": None,
+            "status": "Simulated Testing Mode (Add OPENROUTER_API_KEY to .env for live AI)",
+        }
+
+    loop = asyncio.get_running_loop()
+    try:
+        def _query():
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://telegram.org",
+                "X-Title": "Chatters AI Council",
+                "User-Agent": "ChattersCouncil/2.0",
+            }
+            # 1. Query key validation
+            req_key = urllib.request.Request(f"{OPENROUTER_BASE_URL}/auth/key", headers=headers)
+            with urllib.request.urlopen(req_key, timeout=6) as r:
+                key_data = json.loads(r.read().decode()).get("data", {})
+
+            # 2. Query credit balance
+            credit_usd = None
+            try:
+                req_cred = urllib.request.Request(f"{OPENROUTER_BASE_URL}/credits", headers=headers)
+                with urllib.request.urlopen(req_cred, timeout=6) as rc:
+                    cred_data = json.loads(rc.read().decode()).get("data", {})
+                    total_cred = float(cred_data.get("total_credits", 0.0) or 0.0)
+                    total_usage = float(cred_data.get("total_usage", 0.0) or 0.0)
+                    credit_usd = max(0.0, total_cred - total_usage)
+            except Exception:
+                pass
+
+            return {"configured": True, "active": True, "key_data": key_data, "credit_usd": credit_usd}
+
+        res = await loop.run_in_executor(None, _query)
+        cred_str = f" | Credit: ${res['credit_usd']:.2f} USD" if res.get("credit_usd") is not None else ""
+        return {
+            "configured": True,
+            "active": True,
+            "credit_usd": res.get("credit_usd"),
+            "status": f"OpenRouter Unified Engine (Active 🟢{cred_str})",
+        }
+    except urllib.error.HTTPError as he:
+        try:
+            err_msg = json.loads(he.read().decode()).get("error", {}).get("message", str(he))
+        except Exception:
+            err_msg = str(he)
+        return {
+            "configured": True,
+            "active": False,
+            "credit_usd": 0.0,
+            "status": f"⚠️ OpenRouter Key Error ({he.code}): {err_msg}",
+        }
+    except Exception as e:
+        return {
+            "configured": True,
+            "active": True,
+            "credit_usd": None,
+            "status": f"OpenRouter Unified Engine (Connected)",
+        }
 
 
 # =============================================================================

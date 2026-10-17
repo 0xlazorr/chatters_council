@@ -271,6 +271,17 @@ class MSnifferExecutor:
                         raw_response=data,
                     )
 
+        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
+            logger.warning(f"Market Sniffer webhook timed out after 20s at {url}")
+            return ExecutionResult(
+                success=False,
+                action=action,
+                mint=mint,
+                amount=amount,
+                message=f"Webhook request timed out after 20s. Market Sniffer may still be processing on-chain.",
+                duration_seconds=time.time() - start_time,
+                dispatch_mode="webhook",
+            )
         except aiohttp.ClientConnectorError as e:
             logger.warning(f"Could not connect to MSniffer webhook at {url}: {e}")
             return ExecutionResult(
@@ -283,13 +294,14 @@ class MSnifferExecutor:
                 dispatch_mode="webhook",
             )
         except Exception as e:
-            logger.error(f"Error dispatching webhook to {url}: {e}", exc_info=True)
+            err_msg = str(e) or type(e).__name__
+            logger.error(f"Error dispatching webhook to {url}: {err_msg}", exc_info=True)
             return ExecutionResult(
                 success=False,
                 action=action,
                 mint=mint,
                 amount=amount,
-                message=f"Webhook dispatch exception: {str(e)}",
+                message=f"Webhook dispatch exception: {err_msg}",
                 duration_seconds=time.time() - start_time,
                 dispatch_mode="webhook",
             )

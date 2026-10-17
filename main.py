@@ -285,7 +285,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = check_and_record_chat_id(update)
     active_agents = config.get_active_agents()
 
-    backend_desc = "OpenRouter Unified Engine" if config.OPENROUTER_API_KEY else "Simulated Fallback Mode"
+    openrouter_info = await config.check_openrouter_status()
+    backend_desc = openrouter_info.get("status", "OpenRouter Unified Engine")
     wallet_info = await MSnifferExecutor.get_wallet_status()
     sol_bal = wallet_info.get("sol_balance", 0.0)
     wallet_addr = wallet_info.get("wallet", "Unavailable")
@@ -620,7 +621,8 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_busy = False
         old_task = active_task_name
         active_task_name = ""
-        msgs.append(f"🛑 Cancelled active session: <b>{old_task}</b>")
+        safe_old = html.escape(old_task)
+        msgs.append(f"🛑 Cancelled active session: <b>{safe_old}</b>")
 
     if msgs:
         await update.message.reply_text("\n".join(msgs), parse_mode=ParseMode.HTML)
@@ -729,9 +731,10 @@ async def execute_council_session(
 
     if is_busy:
         if lead_bot:
+            safe_task = html.escape(active_task_name)
             await lead_bot.send_message(
                 chat_id=chat_id,
-                text=f"⏳ The council is currently busy with: <b>{active_task_name}</b>. Please wait or use /cancel.",
+                text=f"⏳ The council is currently busy with: <b>{safe_task}</b>. Please wait or use /cancel.",
                 parse_mode=ParseMode.HTML,
             )
         return False
@@ -1496,6 +1499,7 @@ def main():
     print("=" * 65)
     print(f"📡 Listener / Poller Bot : {listener_agent.name} (@{listener_agent.username})")
     print(f"👥 Active Council Agents : {len(active_agents)}")
+    print(f"🧠 LLM Engine Backend    : {'OpenRouter Unified Engine' if config.OPENROUTER_API_KEY else 'Simulated Testing Mode (Add OPENROUTER_API_KEY for live AI)'}")
     print(f"📍 Target Group Chat ID : {config.GROUP_CHAT_ID or 'Auto-detect on first message'}")
     print(f"🐕 MSniffer Dispatch Mode: {config.MSNIFFER_DISPATCH_MODE.upper()}")
     print("=" * 65 + "\n")
