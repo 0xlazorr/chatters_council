@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Any, Dict, List, Optional, Tuple
 
 import config
@@ -36,6 +36,7 @@ class Position:
     amount_sol: float
     entry_timestamp: float
     status: str = "OPEN"  # "OPEN" or "CLOSED"
+    exit_strategy: str = "AUTO_EXIT"  # "AUTO_EXIT" or "HOLD_INDEFINITE"
     pnl_pct: float = 0.0
     buy_tx_hash: str = ""
     exit_tx_hash: str = ""
@@ -57,10 +58,12 @@ class PositionManager:
         if not os.path.exists(self.filepath):
             return
         try:
+            valid_keys = {f.name for f in fields(Position)}
             with open(self.filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 for item in data:
-                    pos = Position(**item)
+                    filtered = {k: v for k, v in item.items() if k in valid_keys}
+                    pos = Position(**filtered)
                     self.positions[pos.mint] = pos
             logger.info(f"Loaded {len(self.positions)} positions from {self.filepath}")
         except Exception as e:
@@ -86,8 +89,13 @@ class PositionManager:
         entry_price_usd: float,
         amount_sol: float,
         tx_hash: str = "",
+        exit_strategy: Optional[str] = None,
     ) -> Position:
-        """Registers a newly purchased token position."""
+        """Registers a newly purchased token position with designated exit strategy."""
+        strat = exit_strategy.upper() if exit_strategy else config.DEFAULT_EXIT_STRATEGY
+        if strat not in ("AUTO_EXIT", "HOLD_INDEFINITE"):
+            strat = "AUTO_EXIT"
+
         pos = Position(
             mint=mint,
             symbol=symbol or "UNKNOWN",
@@ -98,17 +106,36 @@ class PositionManager:
             amount_sol=amount_sol,
             entry_timestamp=time.time(),
             status="OPEN",
+            exit_strategy=strat,
             pnl_pct=0.0,
             buy_tx_hash=tx_hash,
         )
         self.positions[mint] = pos
         self._save()
-        logger.info(f"📈 Opened position: {symbol} ({mint}) at ${entry_price_usd:.6f} with {amount_sol} SOL")
+        logger.info(
+            f"📈 Opened position: {symbol} ({mint}) at ${entry_price_usd:.6f} "
+            f"with {amount_sol} SOL | Strategy: {strat}"
+        )
         return pos
 
     def get_open_positions(self) -> List[Position]:
         """Returns all currently active positions."""
         return [p for p in self.positions.values() if p.status == "OPEN"]
+
+    def set_position_strategy(self, mint: str, strategy: str) -> Tuple[bool, str]:
+        """Updates the exit strategy for an existing open position."""
+        pos = self.positions.get(mint)
+        if not pos or pos.status != "OPEN":
+            return False, f"No open position found for token <code>{mint}</code>"
+
+        strat = strategy.upper()
+        if strat not in ("AUTO_EXIT", "HOLD_INDEFINITE"):
+            return False, "Strategy must be AUTO_EXIT or HOLD_INDEFINITE"
+
+        pos.exit_strategy = strat
+        self._save()
+        desc = "💎 HOLD INDEFINITELY" if strat == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
+        return True, f"Updated strategy for <b>{pos.name}</b> (<code>${pos.symbol}</code>) to <b>{desc}</b>"
 
     def update_price(self, mint: str, current_price_usd: float) -> Optional[Position]:
         """Updates live price, peak price, and PnL for a position."""
@@ -136,9 +163,14 @@ class PositionManager:
         if not pos or pos.status != "OPEN":
             return False, ""
 
+        # Option: HOLD_INDEFINITE (Diamond Hands)
+        # Never triggers automatic sell; position is held until Admin manually exits with /sell
+        if pos.exit_strategy == "HOLD_INDEFINITE":
+            return False, ""
+
         pnl = pos.pnl_pct
 
-        # 1. Take-Profit Target Trigger (default +50% or +100%)
+        # 1. Take-Profit Target Trigger (default +50% gain)
         if pnl >= config.TAKE_PROFIT_PCT:
             return True, f"Take-Profit Target Reached (+{pnl:.1f}% gain)"
 
@@ -194,14 +226,15 @@ class PositionManager:
         for p in open_pos:
             pnl_badge = f"+{p.pnl_pct:.1f}% 🟢" if p.pnl_pct >= 0 else f"{p.pnl_pct:.1f}% 🔴"
             dex_url = f"https://dexscreener.com/solana/{p.mint}"
+            strat_badge = "💎 HOLD" if p.exit_strategy == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
             lines.append(
                 f"🪙 <b>{p.name}</b> (<code>${p.symbol}</code>)\n"
+                f"  • Strategy: <b>{strat_badge}</b> | PnL: <b>{pnl_badge}</b>\n"
                 f"  • Entry: <code>${p.entry_price_usd:.6f}</code> | Current: <code>${p.current_price_usd:.6f}</code>\n"
-                f"  • PnL: <b>{pnl_badge}</b> | Size: <code>{p.amount_sol:.2f} SOL</code>\n"
-                f"  • Chart: <a href='{dex_url}'>DexScreener</a>\n"
+                f"  • Size: <code>{p.amount_sol:.2f} SOL</code> | Chart: <a href='{dex_url}'>DexScreener</a>\n"
             )
         lines.append("───────────────────────────────")
-        lines.append("<i>Auto-Exits active: Take-Profit +50% | Trailing Stop 15% | Stop-Loss -25%</i>")
+        lines.append("<i>Controls: /sell &lt;CA&gt; [pct] to exit anytime | /exitmode to change default strategy</i>")
         return "\n".join(lines)
 
 

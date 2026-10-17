@@ -246,8 +246,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>&lt;CA&gt; -vot</code> - Instantly launches Formal Vote\n"
         "• <code>&lt;CA&gt; -deb</code> - Instantly launches Debate\n"
         "• <code>&lt;CA&gt; -a 0.50</code> - Selects investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n"
+        "• <code>&lt;CA&gt; -hold</code> - Sets exit strategy to Hold Indefinitely (Diamond Hands)\n"
+        "• <code>&lt;CA&gt; -tp 75</code> - Overrides Take-Profit target to +75%\n"
         "• <code>&lt;CA&gt; -m ruthless</code> - Overrides mood for this evaluation\n"
-        "<i>💡 Tip: Posting a bare CA with NO flags brings up interactive 1-click buttons with preset investment options!</i>\n\n"
+        "<i>💡 Tip: Posting a bare CA with NO flags brings up interactive 1-click buttons with amount & strategy presets!</i>\n\n"
         "<b>🤖 Autonomous Autopilot Stream Trading:</b>\n"
         "• <code>/auto on</code> - Starts autonomous loop (screens breakout tokens, debates, votes & trades)\n"
         "• <code>/auto off</code> - Halts autonomous loop\n"
@@ -255,11 +257,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "<i>🛡️ Safety Guard: Autopilot automatically halts if wallet SOL drops below minimum!</i>\n\n"
         "<b>📈 Positions & Automated Profit-Taking:</b>\n"
         "• <code>/positions</code> - View open positions, entry prices, and live PnL %\n"
+        "• <code>/exitmode [auto|hold]</code> - Switch Council exit strategy: Auto-Exit (+50% TP) vs Hold Indefinitely\n"
+        "• <code>/tp &lt;pct&gt;</code> - Customize Take-Profit target percentage (e.g. <code>/tp 50</code>, <code>/tp 100</code>)\n"
         "• <code>/sell &lt;CA&gt; [pct]</code> - Manually exit a token position (e.g. <code>/sell &lt;CA&gt; 100</code>)\n"
         "<i>🎯 Auto-Exits: Monitored 24/7 for Take-Profit (+50%), Trailing Stop (15%), and Stop-Loss (-25%)!</i>\n\n"
-        "<b>🏦 Profit Vault ($25 USDT Sweeper):</b>\n"
-        "• <code>/vault</code> - View total USDT harvested & progress to next $25 sweep\n"
-        "<i>🔒 One-Way Ratchet: $25 profits are auto-swept into USDT. The bot can NEVER convert USDT to SOL!</i>\n\n"
+        "<b>🏦 Profit Vault (USDT Sweeper):</b>\n"
+        "• <code>/vault</code> - View total USDT harvested & interactive threshold buttons\n"
+        "• <code>/vault &lt;amount&gt;</code> - Set custom threshold (e.g. <code>/vault 50</code> or <code>/vault 25</code>)\n"
+        "• <code>/vault reset</code> - Sync baseline to current wallet SOL balance\n"
+        "<i>🔒 One-Way Ratchet: Profits are auto-swept into USDT. The bot can NEVER convert USDT to SOL!</i>\n\n"
         "<b>💳 Treasury, Wallet & Investment Options:</b>\n"
         "• <code>/wallet</code> - View Market Sniffer execution wallet pubkey & live SOL balance\n"
         "• <code>/invest [amount]</code> - View or change default investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n\n"
@@ -351,12 +357,123 @@ async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def vault_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays Profit Vault status, accumulated USDT, and progress toward next $25 harvest."""
+    """Displays Profit Vault status or sets customizable threshold (/vault [amount|reset])."""
     chat_id = check_and_record_chat_id(update)
+    args = context.args or []
+
+    if args:
+        auth, reason = is_authorized_admin(update)
+        if not auth:
+            await update.message.reply_text(f"⛔ {reason}")
+            return
+
+        arg_val = args[0].strip().lower()
+        if arg_val in ("reset", "sync"):
+            wallet_info = await MSnifferExecutor.get_wallet_status()
+            sol_bal = wallet_info.get("sol_balance", 0.0)
+            profit_vault.reset_baseline(sol_bal)
+            await update.message.reply_text(
+                f"✅ <b>Profit Vault Baseline Synced:</b> <code>{sol_bal:.4f} SOL</code>\n"
+                f"Future profit sweeps will calculate gains from this new baseline.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        try:
+            cleaned = float(arg_val.replace("$", "").replace("usd", ""))
+            ok, msg = profit_vault.set_threshold(cleaned)
+            await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+            return
+        except ValueError:
+            pass
+
     wallet_info = await MSnifferExecutor.get_wallet_status()
     sol_bal = wallet_info.get("sol_balance", 0.0)
     text = profit_vault.get_status_text(current_sol_balance=sol_bal)
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    await update.message.reply_text(
+        text,
+        reply_markup=build_vault_keyboard(),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def exitmode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles /exitmode [auto|hold] to configure default Council exit strategy."""
+    chat_id = check_and_record_chat_id(update)
+    args = context.args or []
+
+    if args:
+        auth, reason = is_authorized_admin(update)
+        if not auth:
+            await update.message.reply_text(f"⛔ {reason}")
+            return
+
+        val = args[0].strip().lower()
+        if val in ("hold", "diamond", "moon", "moonbag"):
+            config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE"
+            await update.message.reply_text(
+                "💎 <b>Default Exit Strategy Set to HOLD INDEFINITELY</b>\n\n"
+                "Autonomous and manual trades will hold tokens indefinitely without auto-selling.\n"
+                "You can manually exit anytime using <code>/sell &lt;CA&gt; [pct]</code>.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif val in ("auto", "exit", "tp", "profit"):
+            config.DEFAULT_EXIT_STRATEGY = "AUTO_EXIT"
+            await update.message.reply_text(
+                f"🎯 <b>Default Exit Strategy Set to AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)</b>\n\n"
+                f"Positions will automatically exit at +{config.TAKE_PROFIT_PCT:.0f}% profit, trailing stops, or -25% stop-loss.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+    current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)" if config.DEFAULT_EXIT_STRATEGY == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}% Take-Profit)"
+    text = (
+        "🛡️ <b>COUNCIL EXIT STRATEGY CONTROLLER</b>\n"
+        "───────────────────────────────\n"
+        f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n"
+        f"📈 <b>Take-Profit Target:</b> <code>+{config.TAKE_PROFIT_PCT:.0f}%</code>\n"
+        f"📉 <b>Trailing Stop:</b> <code>{config.TRAILING_STOP_PCT:.0f}%</code> | <b>Stop-Loss:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
+        "───────────────────────────────\n"
+        "<i>Tap a strategy below to switch the default mode for both autonomous and manual trades:</i>"
+    )
+    await update.message.reply_text(
+        text,
+        reply_markup=build_exitmode_keyboard(),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def tp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles /tp <pct> to configure Take-Profit target percentage."""
+    auth, reason = is_authorized_admin(update)
+    if not auth:
+        await update.message.reply_text(f"⛔ {reason}")
+        return
+
+    chat_id = check_and_record_chat_id(update)
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            f"🎯 <b>Current Take-Profit Target:</b> <code>+{config.TAKE_PROFIT_PCT:.0f}%</code>\n\n"
+            f"Usage: <code>/tp &lt;percentage&gt;</code> (e.g. <code>/tp 50</code>, <code>/tp 100</code>)",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    try:
+        new_tp = float(args[0].strip().replace("%", ""))
+        if new_tp < 5.0:
+            await update.message.reply_text("⚠️ Minimum Take-Profit target is +5.0%.")
+            return
+        config.TAKE_PROFIT_PCT = new_tp
+        await update.message.reply_text(
+            f"✅ <b>Take-Profit Target Updated:</b> <code>+{new_tp:.1f}%</code>\n"
+            f"Tokens configured for AUTO-EXIT will automatically sell when profit reaches +{new_tp:.1f}%.",
+            parse_mode=ParseMode.HTML,
+        )
+    except ValueError:
+        await update.message.reply_text("⚠️ Invalid number. Usage: <code>/tp 50</code>", parse_mode=ParseMode.HTML)
 
 
 async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -531,12 +648,71 @@ def extract_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
     return ""
 
 
+async def _handle_post_execution(
+    prompt: str,
+    exec_res,
+    lead_bot: Optional[Bot],
+    chat_id: int,
+    exit_strategy: Optional[str] = None,
+):
+    """
+    Handles position registration, automated exit monitoring, and profit vault sweeps
+    following consensus trade execution.
+    """
+    if not exec_res or not exec_res.success:
+        return
+
+    mint, action, amount, symbol = SignalExtractor.extract(prompt)
+    if not mint or mint == config.USDT_SOLANA_MINT:
+        return
+
+    if action == "BUY":
+        telemetry = await autopilot._enrich_candidate_raw(mint)
+        price = telemetry.get("price_usd", 0.0) if telemetry else 0.0
+        tok_name = telemetry.get("name", symbol or "Token") if telemetry else (symbol or "Token")
+        tok_sym = telemetry.get("symbol", symbol or "TOKEN") if telemetry else (symbol or "TOKEN")
+
+        strat = exit_strategy or config.DEFAULT_EXIT_STRATEGY
+        pos = position_manager.open_position(
+            mint=mint,
+            symbol=tok_sym,
+            name=tok_name,
+            entry_price_usd=price,
+            amount_sol=amount,
+            tx_hash=exec_res.tx_hash or "",
+            exit_strategy=strat,
+        )
+        strat_badge = "💎 HOLD INDEFINITELY" if pos.exit_strategy == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
+        logger.info(f"📈 Position registered: {tok_sym} ({mint}) at ${price:.6f} | Strategy: {strat_badge}")
+
+    elif action == "SELL":
+        telemetry = await autopilot._enrich_candidate_raw(mint)
+        curr_price = telemetry.get("price_usd", 0.0) if telemetry else 0.0
+        position_manager.close_position(
+            mint=mint,
+            exit_price_usd=curr_price,
+            exit_reason="Manual execution or council exit",
+            exit_tx_hash=exec_res.tx_hash or "",
+        )
+        logger.info(f"📉 Position closed for {mint} at ${curr_price:.6f}")
+
+        # Trigger Profit Vault Sweep check
+        wallet_info = await MSnifferExecutor.get_wallet_status()
+        if wallet_info.get("online") and lead_bot:
+            await profit_vault.check_and_sweep(
+                current_sol_balance=wallet_info.get("sol_balance", 0.0),
+                broadcaster_bot=lead_bot,
+                reply_to_chat_id=chat_id,
+            )
+
+
 async def execute_council_session(
     chat_id: int,
     prompt: str,
     mode: str,
     reply_to_id: Optional[int] = None,
     mood_override: Optional[str] = None,
+    exit_strategy: Optional[str] = None,
 ) -> bool:
     """
     Centralized execution engine for all Council modes (debate, vote, execute, dve).
@@ -653,6 +829,14 @@ async def execute_council_session(
                         text=announcement,
                         disable_web_page_preview=True,
                     )
+                # Register position and monitor exit / profit sweep
+                await _handle_post_execution(
+                    prompt=prompt,
+                    exec_res=exec_res,
+                    lead_bot=lead_bot,
+                    chat_id=chat_id,
+                    exit_strategy=exit_strategy,
+                )
                 return exec_res.success
             else:
                 if lead_bot:
@@ -703,6 +887,14 @@ async def execute_council_session(
                         text=announcement,
                         disable_web_page_preview=True,
                     )
+                # Register position and monitor exit / profit sweep
+                await _handle_post_execution(
+                    prompt=prompt,
+                    exec_res=exec_res,
+                    lead_bot=lead_bot,
+                    chat_id=chat_id,
+                    exit_strategy=exit_strategy,
+                )
                 return exec_res.success
             else:
                 if lead_bot:
@@ -776,38 +968,54 @@ async def dve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await execute_council_session(chat_id=chat_id, prompt=prompt, mode="dve", reply_to_id=update.message.message_id)
 
 
-def build_ca_keyboard(mint: str, selected_amount: Optional[float] = None) -> InlineKeyboardMarkup:
+def build_ca_keyboard(
+    mint: str,
+    selected_amount: Optional[float] = None,
+    strategy: Optional[str] = None,
+) -> InlineKeyboardMarkup:
     """
-    Builds the interactive inline keyboard with explicit preset investment amount options.
-    Prevents arbitrary custom amounts by strictly offering approved SOL tiers.
+    Builds the interactive inline keyboard with explicit preset investment amount options
+    and exit strategy toggle (Auto-Exit +50% vs Hold Indefinitely).
     """
     if selected_amount is None:
         selected_amount = config.DEFAULT_TRADE_AMOUNT_SOL
     selected_amount = config.validate_investment_amount(selected_amount)
 
+    if strategy is None:
+        strategy = config.DEFAULT_EXIT_STRATEGY
+    strat_code = "h" if strategy.upper() == "HOLD_INDEFINITE" else "a"
+
     # Row 1: Strict preset investment options
     amt_row = []
     for opt in config.ALLOWED_INVESTMENT_OPTIONS:
         label = f"{opt:.2f} SOL ✅" if abs(opt - selected_amount) < 0.001 else f"{opt:.2f} SOL"
-        amt_row.append(InlineKeyboardButton(label, callback_data=f"amt:{mint}:{opt:.2f}"))
+        amt_row.append(InlineKeyboardButton(label, callback_data=f"amt:{mint}:{opt:.2f}:{strat_code}"))
 
-    # Row 2: Council execution actions with the chosen investment amount
+    # Row 2: Exit Strategy Selection
+    auto_label = f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%) ✅" if strat_code == "a" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
+    hold_label = "💎 Hold Indefinite ✅" if strat_code == "h" else "💎 Hold Indefinite"
+    strat_row = [
+        InlineKeyboardButton(auto_label, callback_data=f"strat:{mint}:{selected_amount:.2f}:a"),
+        InlineKeyboardButton(hold_label, callback_data=f"strat:{mint}:{selected_amount:.2f}:h"),
+    ]
+
+    # Row 3: Council execution actions with chosen amount and strategy
     action_row = [
-        InlineKeyboardButton(f"🚀 Full DVE ({selected_amount:.2f} SOL)", callback_data=f"dve:{mint}:{selected_amount:.2f}"),
-        InlineKeyboardButton(f"⚡ Vote & Exe ({selected_amount:.2f} SOL)", callback_data=f"exe:{mint}:{selected_amount:.2f}"),
+        InlineKeyboardButton(f"🚀 Full DVE ({selected_amount:.2f} SOL)", callback_data=f"dve:{mint}:{selected_amount:.2f}:{strat_code}"),
+        InlineKeyboardButton(f"⚡ Vote & Exe ({selected_amount:.2f} SOL)", callback_data=f"exe:{mint}:{selected_amount:.2f}:{strat_code}"),
     ]
 
-    # Row 3: Deliberation without execution
+    # Row 4: Deliberation without execution
     delib_row = [
-        InlineKeyboardButton("🗳️ Vote Only", callback_data=f"vot:{mint}:{selected_amount:.2f}"),
-        InlineKeyboardButton("🎙️ Debate Only", callback_data=f"deb:{mint}:{selected_amount:.2f}"),
+        InlineKeyboardButton("🗳️ Vote Only", callback_data=f"vot:{mint}:{selected_amount:.2f}:{strat_code}"),
+        InlineKeyboardButton("🎙️ Debate Only", callback_data=f"deb:{mint}:{selected_amount:.2f}:{strat_code}"),
     ]
 
-    # Row 4: Autopilot toggle
+    # Row 5: Autopilot toggle
     ap_label = "🛑 Stop Autopilot" if autopilot.is_running else "🤖 Start Autopilot"
     ap_row = [InlineKeyboardButton(ap_label, callback_data="auto:toggle")]
 
-    return InlineKeyboardMarkup([amt_row, action_row, delib_row, ap_row])
+    return InlineKeyboardMarkup([amt_row, strat_row, action_row, delib_row, ap_row])
 
 
 def build_invest_keyboard() -> InlineKeyboardMarkup:
@@ -817,6 +1025,30 @@ def build_invest_keyboard() -> InlineKeyboardMarkup:
     for opt in config.ALLOWED_INVESTMENT_OPTIONS:
         label = f"{opt:.2f} SOL ✅" if abs(opt - current) < 0.001 else f"{opt:.2f} SOL"
         row.append(InlineKeyboardButton(label, callback_data=f"setinv:{opt:.2f}"))
+    return InlineKeyboardMarkup([row])
+
+
+def build_vault_keyboard() -> InlineKeyboardMarkup:
+    """Builds interactive inline keyboard for customizing Profit Vault harvest threshold."""
+    current = profit_vault.threshold_usd
+    row1 = []
+    for th in config.ALLOWED_VAULT_THRESHOLDS:
+        label = f"${th:.0f} ✅" if abs(th - current) < 0.01 else f"${th:.0f}"
+        row1.append(InlineKeyboardButton(label, callback_data=f"setvault:{th:.0f}"))
+
+    row2 = [InlineKeyboardButton("🔄 Sync Baseline to Live SOL", callback_data="setvault:reset")]
+    return InlineKeyboardMarkup([row1, row2])
+
+
+def build_exitmode_keyboard() -> InlineKeyboardMarkup:
+    """Builds interactive inline keyboard for toggling Council default exit strategy."""
+    strat = config.DEFAULT_EXIT_STRATEGY
+    auto_label = f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%) ✅" if strat == "AUTO_EXIT" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
+    hold_label = "💎 Hold Indefinite ✅" if strat == "HOLD_INDEFINITE" else "💎 Hold Indefinite"
+    row = [
+        InlineKeyboardButton(auto_label, callback_data="setstrat:a"),
+        InlineKeyboardButton(hold_label, callback_data="setstrat:h"),
+    ]
     return InlineKeyboardMarkup([row])
 
 
@@ -926,6 +1158,21 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         amount = config.validate_investment_amount(amount)
 
+    # Strategy flag: -hold / --hold (Diamond Hands) or -auto-exit / -tp
+    exit_strategy = None
+    if re.search(r"(?:^|\s)(?:--?hold)\b", text, re.IGNORECASE):
+        exit_strategy = "HOLD_INDEFINITE"
+    elif re.search(r"(?:^|\s)(?:--?(?:auto-?exit|tp))\b", text, re.IGNORECASE):
+        exit_strategy = "AUTO_EXIT"
+
+    # Take-Profit percentage override flag (-tp 75 or --tp 75)
+    tp_match = re.search(r"(?:-tp|--tp)\s+(\d+(?:\.\d+)?)", text, re.IGNORECASE)
+    if tp_match:
+        try:
+            config.TAKE_PROFIT_PCT = float(tp_match.group(1))
+        except ValueError:
+            pass
+
     # Custom mood flag (-m ruthless or --mood ruthless)
     mood_match = re.search(r"(?:-m|--mood)\s+([a-zA-Z]+)", text, re.IGNORECASE)
     mood_override = mood_match.group(1).lower() if mood_match else None
@@ -952,18 +1199,22 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             mode=mode,
             reply_to_id=update.message.message_id,
             mood_override=mood_override,
+            exit_strategy=exit_strategy,
         )
         return
 
-    # 6. If NO flag attached (bare CA), present interactive 1-click inline keyboard with investment options!
+    # 6. If NO flag attached (bare CA), present interactive 1-click inline keyboard with investment & strategy options!
     dex_url = f"https://dexscreener.com/solana/{mint}"
-    reply_markup = build_ca_keyboard(mint=mint, selected_amount=amount)
+    strat_to_use = exit_strategy or config.DEFAULT_EXIT_STRATEGY
+    reply_markup = build_ca_keyboard(mint=mint, selected_amount=amount, strategy=strat_to_use)
 
+    strat_desc = "💎 Hold Indefinitely (Diamond Hands)" if strat_to_use == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}% TP / -25% SL)"
     card_text = (
         f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
         f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
-        f"💰 <b>Selected Investment:</b> <code>{amount:.2f} SOL</code>\n\n"
-        f"<i>Select an approved investment option above or trigger an action:</i>"
+        f"💰 <b>Selected Investment:</b> <code>{amount:.2f} SOL</code>\n"
+        f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
+        f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
     )
 
     await update.message.reply_text(
@@ -1006,7 +1257,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.message.reply_text(res_msg, parse_mode=ParseMode.HTML)
         return
 
-    # 2. Handle Investment Option selection on CA card (amt:<mint>:<val>)
+    # 2. Handle Investment Option selection on CA card (amt:<mint>:<val>:<strat>)
     if data.startswith("amt:"):
         parts = data.split(":")
         if len(parts) >= 3:
@@ -1015,14 +1266,18 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 new_amt = config.validate_investment_amount(float(parts[2]))
             except ValueError:
                 new_amt = config.DEFAULT_TRADE_AMOUNT_SOL
+            strat_code = parts[3] if len(parts) > 3 else "a"
+            strat = "HOLD_INDEFINITE" if strat_code == "h" else "AUTO_EXIT"
 
-            new_markup = build_ca_keyboard(mint=mint, selected_amount=new_amt)
+            new_markup = build_ca_keyboard(mint=mint, selected_amount=new_amt, strategy=strat)
             dex_url = f"https://dexscreener.com/solana/{mint}"
+            strat_desc = "💎 Hold Indefinitely" if strat == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
             updated_text = (
                 f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
                 f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
-                f"💰 <b>Selected Investment:</b> <code>{new_amt:.2f} SOL</code>\n\n"
-                f"<i>Select an approved investment option above or trigger an action:</i>"
+                f"💰 <b>Selected Investment:</b> <code>{new_amt:.2f} SOL</code>\n"
+                f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
+                f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
             )
             try:
                 await query.edit_message_text(
@@ -1035,7 +1290,40 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.debug(f"Error updating inline keyboard: {e}")
         return
 
-    # 3. Handle Setting Global Default Investment Option (setinv:<val>)
+    # 3. Handle Exit Strategy selection on CA card (strat:<mint>:<amt>:<strat>)
+    if data.startswith("strat:"):
+        parts = data.split(":")
+        if len(parts) >= 4:
+            mint = parts[1]
+            try:
+                amt = config.validate_investment_amount(float(parts[2]))
+            except ValueError:
+                amt = config.DEFAULT_TRADE_AMOUNT_SOL
+            strat_code = parts[3]
+            strat = "HOLD_INDEFINITE" if strat_code == "h" else "AUTO_EXIT"
+
+            new_markup = build_ca_keyboard(mint=mint, selected_amount=amt, strategy=strat)
+            dex_url = f"https://dexscreener.com/solana/{mint}"
+            strat_desc = "💎 Hold Indefinitely" if strat == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
+            updated_text = (
+                f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
+                f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
+                f"💰 <b>Selected Investment:</b> <code>{amt:.2f} SOL</code>\n"
+                f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
+                f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+            )
+            try:
+                await query.edit_message_text(
+                    text=updated_text,
+                    reply_markup=new_markup,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
+            except Exception as e:
+                logger.debug(f"Error updating inline keyboard: {e}")
+        return
+
+    # 4. Handle Setting Global Default Investment Option (setinv:<val>)
     if data.startswith("setinv:"):
         parts = data.split(":")
         if len(parts) >= 2:
@@ -1059,13 +1347,68 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.debug(f"Error setting default investment: {e}")
         return
 
-    # 4. Handle Council Action dispatch (dve, exe, vot, deb)
+    # 5. Handle Setting Vault Threshold or Resetting Baseline (setvault:<val>)
+    if data.startswith("setvault:"):
+        parts = data.split(":")
+        if len(parts) >= 2:
+            val_str = parts[1]
+            if val_str == "reset":
+                wallet_info = await MSnifferExecutor.get_wallet_status()
+                sol_bal = wallet_info.get("sol_balance", 0.0)
+                profit_vault.reset_baseline(sol_bal)
+            else:
+                try:
+                    profit_vault.set_threshold(float(val_str))
+                except ValueError:
+                    pass
+            wallet_info = await MSnifferExecutor.get_wallet_status()
+            sol_bal = wallet_info.get("sol_balance", 0.0)
+            text = profit_vault.get_status_text(current_sol_balance=sol_bal)
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=build_vault_keyboard(),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.debug(f"Error updating vault markup: {e}")
+        return
+
+    # 6. Handle Setting Default Exit Strategy (setstrat:<strat>)
+    if data.startswith("setstrat:"):
+        parts = data.split(":")
+        if len(parts) >= 2:
+            code = parts[1]
+            config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE" if code == "h" else "AUTO_EXIT"
+            current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)" if config.DEFAULT_EXIT_STRATEGY == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}% Take-Profit)"
+            text = (
+                "🛡️ <b>COUNCIL EXIT STRATEGY CONTROLLER</b>\n"
+                "───────────────────────────────\n"
+                f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n"
+                f"📈 <b>Take-Profit Target:</b> <code>+{config.TAKE_PROFIT_PCT:.0f}%</code>\n"
+                f"📉 <b>Trailing Stop:</b> <code>{config.TRAILING_STOP_PCT:.0f}%</code> | <b>Stop-Loss:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
+                "───────────────────────────────\n"
+                "<i>Tap a strategy below to switch the default mode for both autonomous and manual trades:</i>"
+            )
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=build_exitmode_keyboard(),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.debug(f"Error updating exitmode markup: {e}")
+        return
+
+    # 7. Handle Council Action dispatch (dve, exe, vot, deb)
     parts = data.split(":")
     if len(parts) >= 2:
         cmd_type = parts[0]
         mint = parts[1]
         raw_amt = float(parts[2]) if len(parts) > 2 else config.DEFAULT_TRADE_AMOUNT_SOL
         amount = config.validate_investment_amount(raw_amt)
+        strat_code = parts[3] if len(parts) > 3 else "a"
+        strategy = "HOLD_INDEFINITE" if strat_code == "h" else "AUTO_EXIT"
 
         mode_map = {
             "dve": "dve",
@@ -1087,6 +1430,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             prompt=prompt,
             mode=mode,
             reply_to_id=query.message.message_id if query.message else None,
+            exit_strategy=strategy,
         )
 
 
@@ -1152,6 +1496,8 @@ def main():
     application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
     application.add_handler(CommandHandler(["invest", "setinvest"], invest_command))
     application.add_handler(CommandHandler(["positions", "pos"], positions_command))
+    application.add_handler(CommandHandler(["exitmode", "strat", "strategy"], exitmode_command))
+    application.add_handler(CommandHandler(["tp", "takeprofit"], tp_command))
     application.add_handler(CommandHandler(["vault", "profits"], vault_command))
     application.add_handler(CommandHandler(["sell"], sell_command))
     application.add_handler(CommandHandler(["autopilot", "auto"], autopilot_command))

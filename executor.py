@@ -81,7 +81,10 @@ class SignalExtractor:
         if amt_match:
             try:
                 parsed_amt = float(amt_match.group(1))
-                amount = config.validate_investment_amount(parsed_amt)
+                if mint == config.USDT_SOLANA_MINT:
+                    amount = round(parsed_amt, 4)
+                else:
+                    amount = config.validate_investment_amount(parsed_amt)
             except ValueError:
                 amount = config.DEFAULT_TRADE_AMOUNT_SOL
         elif action == "SELL":

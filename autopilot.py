@@ -462,6 +462,7 @@ class AutopilotEngine:
                             entry_price_usd=price,
                             amount_sol=trade_amt,
                             tx_hash=exec_res.tx_hash or "",
+                            exit_strategy=config.DEFAULT_EXIT_STRATEGY,
                         )
 
                     ann_text = format_execution_announcement(exec_res)

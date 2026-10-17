@@ -123,13 +123,18 @@ SOL_MINT: str = "So11111111111111111111111111111111111111112"
 USDT_SOLANA_MINT: str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
 # Position Exit & Profit-Taking Targets
+DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "AUTO_EXIT").strip().upper()
+if DEFAULT_EXIT_STRATEGY not in ("AUTO_EXIT", "HOLD_INDEFINITE"):
+    DEFAULT_EXIT_STRATEGY = "AUTO_EXIT"
+
 TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "50.0"))  # Exit at +50% gain
 STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Cut loss at -25%
 TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "15.0"))  # Retrace 15% from peak after profit
 
-# Profit Vault Sweeper (One-way ratchet: sweeps $25 profits to USDT; NEVER converts USDT back to SOL)
+# Profit Vault Sweeper (One-way ratchet: sweeps profits to USDT; NEVER converts USDT back to SOL)
 PROFIT_VAULT_ENABLED: bool = os.getenv("PROFIT_VAULT_ENABLED", "true").lower() in ("true", "1", "yes")
 PROFIT_VAULT_THRESHOLD_USD: float = float(os.getenv("PROFIT_VAULT_THRESHOLD_USD", "25.0"))
+ALLOWED_VAULT_THRESHOLDS: List[float] = [10.0, 25.0, 50.0, 100.0, 250.0]
 PROFIT_VAULT_RESERVE_SOL: float = float(os.getenv("PROFIT_VAULT_RESERVE_SOL", "0.10"))
 
 # Autonomous Background Screening Filters (Only high-conviction breakout tokens reach the Council)
