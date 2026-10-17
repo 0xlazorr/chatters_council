@@ -472,12 +472,15 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
 # 2. RESILIENT OPENROUTER WRAPPER & MODEL CLIENT FACTORY
 # =============================================================================
 
+_OPENROUTER_AVAILABLE: bool = True
+
+
 class ResilientCouncilModelClient(ChatCompletionClient):
     """
     Resilient wrapper around OpenAIChatCompletionClient that:
-    1. Retries transient OpenRouter / provider errors (429 rate limit, 500, 502, 503, 504, timeout) with exponential backoff.
-    2. Gracefully falls back to high-quality persona statement if upstream provider is completely down,
-       guaranteeing that one upstream model outage never crashes or blocks the AutoGen council session.
+    1. Enforces strict 8-second timeout so LLM requests never hang or freeze council sessions.
+    2. Instantly detects credit depletion (HTTP 402) and switches all agents to the high-fidelity
+       persona engine with zero delay.
     """
 
     def __init__(
@@ -501,55 +504,50 @@ class ResilientCouncilModelClient(ChatCompletionClient):
         return self._inner.capabilities
 
     async def create(self, messages, tools=(), json_output=None, extra_create_args=None, cancellation_token=None):
-        max_attempts = 3
+        global _OPENROUTER_AVAILABLE
         safe_extra_args = extra_create_args if extra_create_args is not None else {}
-        for attempt in range(1, max_attempts + 1):
-            try:
-                return await self._inner.create(
+
+        # If OpenRouter was previously flagged as depleted, bypass directly with zero delay
+        if not _OPENROUTER_AVAILABLE:
+            return await self._fallback.create(
+                messages=messages,
+                tools=tools,
+                json_output=json_output,
+                extra_create_args=safe_extra_args,
+                cancellation_token=cancellation_token,
+            )
+
+        try:
+            return await asyncio.wait_for(
+                self._inner.create(
                     messages=messages,
                     tools=tools,
                     json_output=json_output,
                     extra_create_args=safe_extra_args,
                     cancellation_token=cancellation_token,
+                ),
+                timeout=8.0,
+            )
+        except Exception as e:
+            err_str = str(e)
+            if "402" in err_str or "credit" in err_str.lower() or "balance" in err_str.lower():
+                _OPENROUTER_AVAILABLE = False
+                logger.warning(
+                    f"[{self.agent_name}] OpenRouter credits depleted. "
+                    f"Bypassing to instant high-fidelity persona engine for all council agents."
                 )
-            except Exception as e:
-                err_str = str(e)
-                if "402" in err_str or "credit" in err_str.lower():
-                    logger.warning(
-                        f"[{self.agent_name}] OpenRouter credit balance depleted (HTTP 402). "
-                        f"Engaging high-fidelity persona engine. To re-enable live cloud LLMs, add credits at https://openrouter.ai/settings/credits."
-                    )
-                    return await self._fallback.create(
-                        messages=messages,
-                        tools=tools,
-                        json_output=json_output,
-                        extra_create_args=safe_extra_args,
-                        cancellation_token=cancellation_token,
-                    )
-                is_transient = any(
-                    code in err_str.lower()
-                    for code in ("429", "500", "502", "503", "504", "timeout", "timed out", "connection", "rate")
-                )
-                if is_transient and attempt < max_attempts:
-                    backoff = attempt * 1.5
-                    logger.warning(
-                        f"[{self.agent_name}] OpenRouter attempt #{attempt} transient error: {e}. "
-                        f"Retrying in {backoff:.1f}s..."
-                    )
-                    await asyncio.sleep(backoff)
-                    continue
-                else:
-                    logger.error(
-                        f"[{self.agent_name}] OpenRouter request failed after {attempt} attempts ({e}). "
-                        f"Engaging resilient fallback response."
-                    )
-                    return await self._fallback.create(
-                        messages=messages,
-                        tools=tools,
-                        json_output=json_output,
-                        extra_create_args=safe_extra_args,
-                        cancellation_token=cancellation_token,
-                    )
+            elif "timeout" in err_str.lower() or "timed out" in err_str.lower():
+                logger.warning(f"[{self.agent_name}] OpenRouter request timed out after 8s. Engaging instant persona engine.")
+            else:
+                logger.warning(f"[{self.agent_name}] OpenRouter transient error ({e}). Engaging instant persona engine.")
+
+            return await self._fallback.create(
+                messages=messages,
+                tools=tools,
+                json_output=json_output,
+                extra_create_args=safe_extra_args,
+                cancellation_token=cancellation_token,
+            )
 
     async def create_stream(self, messages, tools=(), json_output=None, extra_create_args=None, cancellation_token=None):
         safe_extra_args = extra_create_args if extra_create_args is not None else {}
@@ -595,7 +593,7 @@ class ResilientCouncilModelClient(ChatCompletionClient):
 def create_model_client(agent: config.AgentConfig) -> ChatCompletionClient:
     """
     Instantiates the AutoGen ChatCompletionClient for an agent via OpenRouter.
-    - If OPENROUTER_API_KEY is present: queries OpenRouter OpenAI-compatible endpoint with Resilient wrapper.
+    - If OPENROUTER_API_KEY is present: queries OpenRouter with 8s strict timeout and instant fallback.
     - If OPENROUTER_API_KEY is not set: uses SimulatedCouncilModelClient for zero-cost offline testing.
     """
     if config.OPENROUTER_API_KEY:
@@ -610,8 +608,8 @@ def create_model_client(agent: config.AgentConfig) -> ChatCompletionClient:
                 "HTTP-Referer": "https://telegram.org",
                 "X-Title": "Chatters AI Council",
             },
-            max_retries=3,
-            timeout=60.0,
+            max_retries=0,
+            timeout=8.0,
         )
         return ResilientCouncilModelClient(inner, agent.name, agent.role_description)
 

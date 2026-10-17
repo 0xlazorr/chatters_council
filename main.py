@@ -32,6 +32,7 @@ import re
 
 from telegram import Bot, BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
+from telegram.error import BadRequest, TimedOut, NetworkError, TelegramError, RetryAfter
 from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
@@ -198,33 +199,57 @@ async def safe_send_message(
     parse_mode=ParseMode.HTML,
     disable_web_page_preview: bool = False,
 ) -> bool:
-    """Sends a message safely with fallback to plain text if HTML/Markdown parsing fails."""
+    """Sends a message safely with fallback to plain text if HTML/Markdown parsing fails or timeout occurs."""
     if not bot or not chat_id or not text:
         return False
-    try:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            parse_mode=parse_mode,
-            disable_web_page_preview=disable_web_page_preview,
-        )
-        return True
-    except BadRequest as e:
-        logger.debug(f"Formatting failed ({e}); falling back to plain text.")
+
+    for attempt in range(2):
         try:
             await bot.send_message(
                 chat_id=chat_id,
                 text=text,
-                parse_mode=None,
+                parse_mode=parse_mode,
                 disable_web_page_preview=disable_web_page_preview,
             )
             return True
-        except Exception as inner_e:
-            logger.error(f"Failed to send plain text message: {inner_e}")
+        except BadRequest as e:
+            logger.debug(f"Formatting failed ({e}); falling back to plain text.")
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode=None,
+                    disable_web_page_preview=disable_web_page_preview,
+                )
+                return True
+            except Exception as inner_e:
+                logger.error(f"Failed to send plain text message: {inner_e}")
+                return False
+        except (TimedOut, NetworkError) as te:
+            logger.warning(f"Telegram network timeout on attempt {attempt + 1}: {te}")
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+                continue
+            # On second timeout, try sending stripped/plain text without preview
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=text[:3500],
+                    parse_mode=None,
+                    disable_web_page_preview=True,
+                )
+                return True
+            except Exception:
+                return False
+        except RetryAfter as ra:
+            wait_time = float(ra.retry_after or 1.0)
+            logger.warning(f"Telegram flood limit. Waiting {wait_time}s...")
+            await asyncio.sleep(wait_time)
+            continue
+        except Exception as ex:
+            logger.error(f"Unexpected error in safe_send_message: {ex}")
             return False
-    except Exception as ex:
-        logger.error(f"Unexpected error in safe_send_message: {ex}")
-        return False
+    return False
 
 
 # =============================================================================
