@@ -157,13 +157,14 @@ class ResilientCouncilModelClient(ChatCompletionClient):
 
     async def create(self, messages, tools=(), json_output=None, extra_create_args=None, cancellation_token=None):
         max_attempts = 3
+        safe_extra_args = extra_create_args if extra_create_args is not None else {}
         for attempt in range(1, max_attempts + 1):
             try:
                 return await self._inner.create(
                     messages=messages,
                     tools=tools,
                     json_output=json_output,
-                    extra_create_args=extra_create_args,
+                    extra_create_args=safe_extra_args,
                     cancellation_token=cancellation_token,
                 )
             except Exception as e:
@@ -189,17 +190,18 @@ class ResilientCouncilModelClient(ChatCompletionClient):
                         messages=messages,
                         tools=tools,
                         json_output=json_output,
-                        extra_create_args=extra_create_args,
+                        extra_create_args=safe_extra_args,
                         cancellation_token=cancellation_token,
                     )
 
     async def create_stream(self, messages, tools=(), json_output=None, extra_create_args=None, cancellation_token=None):
+        safe_extra_args = extra_create_args if extra_create_args is not None else {}
         try:
             async for chunk in self._inner.create_stream(
                 messages=messages,
                 tools=tools,
                 json_output=json_output,
-                extra_create_args=extra_create_args,
+                extra_create_args=safe_extra_args,
                 cancellation_token=cancellation_token,
             ):
                 yield chunk
@@ -209,7 +211,7 @@ class ResilientCouncilModelClient(ChatCompletionClient):
                 messages=messages,
                 tools=tools,
                 json_output=json_output,
-                extra_create_args=extra_create_args,
+                extra_create_args=safe_extra_args,
                 cancellation_token=cancellation_token,
             )
             yield fallback_res.content
@@ -242,7 +244,8 @@ def create_model_client(agent: config.AgentConfig) -> ChatCompletionClient:
             model=agent.model,
             base_url=config.OPENROUTER_BASE_URL,
             api_key=config.OPENROUTER_API_KEY,
-            model_info=ModelInfo(vision=False, function_calling=False, json_output=False, structured_output=False, family="unknown"),
+            model_info=ModelInfo(vision=False, function_calling=False, json_output=False, structured_output=False, family="unknown", max_tokens=1000),
+            max_tokens=1000,
             default_headers={
                 "HTTP-Referer": "https://telegram.org",
                 "X-Title": "Chatters AI Council",
@@ -726,13 +729,17 @@ class CouncilOrchestrator:
         await asyncio.sleep(1.0)
 
         # Announce transition to voting
-        lead_bot = self.broadcaster.get_bot(self.agents_config[0].name)
-        if lead_bot:
-            await lead_bot.send_message(
-                chat_id=chat_id,
-                text="🗳️ <b>Debate Concluded. Transitioning to Formal Council Vote...</b>",
-                parse_mode=ParseMode.HTML,
-            )
+        if chat_id:
+            lead_bot = self.broadcaster.get_bot(self.agents_config[0].name)
+            if lead_bot:
+                try:
+                    await lead_bot.send_message(
+                        chat_id=chat_id,
+                        text="🗳️ <b>Debate Concluded. Transitioning to Formal Council Vote...</b>",
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception as e:
+                    logger.debug(f"Could not send transition announcement: {e}")
 
         # Step 2: Vote
         summary = await self.run_vote(prompt, chat_id, reply_to_id)
