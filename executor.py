@@ -152,6 +152,18 @@ class MSnifferExecutor:
                 dispatch_mode=config.MSNIFFER_DISPATCH_MODE,
             )
 
+        # CRITICAL SAFETY INVARIANT: Bot is NEVER permitted to automatically sell USDT back to SOL
+        if mint == config.USDT_SOLANA_MINT and action == "SELL":
+            return ExecutionResult(
+                success=False,
+                action=action,
+                mint=mint,
+                amount=amount,
+                message="SECURITY VIOLATION: Automated conversion of USDT to SOL is strictly prohibited. Only the Admin can manually swap USDT.",
+                duration_seconds=time.time() - start_time,
+                dispatch_mode=config.MSNIFFER_DISPATCH_MODE,
+            )
+
         # Pre-execution treasury check: verify wallet has sufficient SOL
         wallet_info = await cls.get_wallet_status()
         if wallet_info.get("online") and action == "BUY":

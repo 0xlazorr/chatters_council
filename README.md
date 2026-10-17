@@ -275,22 +275,53 @@ Autopilot continuously aggregates and screens live Solana breakout candidates fr
 2. **DexScreener Solana Boosts Latest** (`/token-boosts/latest/v1`): Brand-new breakout tokens gaining instant traction on Raydium and Pump.fun.
 3. **DexScreener Token Profiles Latest** (`/token-profiles/latest/v1`): Newly verified project profiles launched on Solana.
 
-#### Pre-Council Screening & Telemetry Enrichment
-Before any candidate is presented to the 5 AI bots:
-- Queries `https://api.dexscreener.com/latest/dex/tokens/{mint}` for live on-chain pair metrics.
-- **Strict Liquidity Floor**: Tokens with liquidity under `$5,000 USD` (`AUTOPILOT_MIN_LIQUIDITY_USD`) are **automatically discarded** to filter out illiquid honeypots, dead pairs, and rugpull traps.
-- Feeds actual market data (Token Name, Symbol, DEX, Price, Liquidity USD, FDV, 24h Volume, 1h Momentum) directly into the AutoGen debate prompt so Claude, GPT, DeepSeek, Gemini, and Grok evaluate factual on-chain conditions.
-- If majority consensus passes (≥ 60% YES), automatically dispatches a BUY order to Market Sniffer.
+#### Silent Background Screening (Only High-Conviction Tokens Reach the Council)
+The engine scans candidates in the background silently without cluttering the Telegram group:
+- **Liquidity Floor**: Discards any pair with liquidity `< $10,000 USD`.
+- **24h Volume Floor**: Discards any pair with 24h volume `< $25,000 USD`.
+- **Momentum Filter**: Requires positive 1-hour price momentum (`≥ +1.0%`).
+- **Turnover Filter**: Requires Volume-to-Liquidity ratio `≥ 0.50` (proves real active trading).
+- **Market Cap Sweet-Spot**: Filters for FDV between `$20,000` and `$25,000,000` USD.
+- **Only when a candidate passes ALL criteria** does the engine announce it in Telegram and convene the 5 AI bots to debate and vote!
 
 ```text
-/auto on       # Start autonomous loop
+/auto on       # Start autonomous screening, trading, and exit loop
 /auto off      # Stop autonomous loop
 /auto status   # View live scan cycles, tokens evaluated, approvals, and executed trades
 ```
 
 ---
 
-### 7. `/invest` — Council Investment Presets (Strict Options)
+### 7. Automated Exits & Profit-Taking (`/positions`)
+The goal of this system is to **lock in profits, not round-trip them**. The engine monitors every purchased token 24/7 in real time:
+- **🎯 Take-Profit Target (+50% / +100%)**: Automatically sells 100% of tokens back to SOL when target gain is reached.
+- **🛡️ Trailing Stop-Loss (15%)**: If a token pumps +20% or more and then retraces by 15% from its peak, triggers an automatic sell to lock in the majority of gains.
+- **🛑 Stop-Loss Protection (-25%)**: Automatically exits underperforming positions to preserve capital.
+- **Proceeds Returned to SOL**: Selling converts tokens back to SOL into your execution wallet, fueling upcoming trades and feeding the Profit Vault.
+
+```text
+/positions     # View all open positions, entry prices, current prices, and live PnL %
+/sell <CA>     # Manually trigger an immediate 100% exit for any token position
+```
+
+---
+
+### 8. One-Way Profit Vault Sweeper (`/vault`)
+Protects your profits from ever getting burned on future trading runs:
+- **Automated $25 Harvest**: Every time the bot generates **$25.00 USD or more in realized profit** above the wallet baseline, it automatically converts $25 worth of SOL into **USDT** (`Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB`).
+- **Operational Trading Reserve**: Ensures a dedicated buffer of SOL (`trade_amount + 0.10 SOL`) is always preserved in the wallet so trading continues smoothly.
+- **🔒 HARDCODED ONE-WAY SAFETY INVARIANT**:
+  - The bot is **strictly forbidden from converting USDT back to SOL**.
+  - All automated `SELL USDT` or `USDT -> SOL` code paths are hard-blocked with safety exceptions.
+  - **Only you (the Admin) can manually access, convert, or withdraw your accumulated USDT reserve.**
+
+```text
+/vault         # View total USDT secured, current unswept profit, and progress toward next $25 harvest
+```
+
+---
+
+### 9. `/invest` — Council Investment Presets (Strict Options)
 View or configure the default trade allocation used by the Council:
 ```text
 /invest          # View active setting and display 1-tap option buttons
@@ -301,7 +332,7 @@ View or configure the default trade allocation used by the Council:
 
 ---
 
-### 8. `/wallet` — Execution Treasury & Live SOL Balance
+### 10. `/wallet` — Execution Treasury & Live SOL Balance
 Displays your Market Sniffer execution wallet address, live SOL balance, and Solscan link directly inside Telegram:
 ```text
 /wallet
@@ -310,7 +341,7 @@ Displays your Market Sniffer execution wallet address, live SOL balance, and Sol
 
 ---
 
-### 9. `/mood <mood_type>` — Council Mood & Personality Switcher
+### 11. `/mood <mood_type>` — Council Mood & Personality Switcher
 Adjusts the collective perspective and debate style:
 - `/mood analytical`: Balanced, data-driven, objective metrics (default).
 - `/mood skeptical`: Hyper-vigilant, actively seeks out honeypots and rug-pulls.
@@ -321,8 +352,8 @@ Adjusts the collective perspective and debate style:
 
 ---
 
-### 10. Administrative & Utility Commands
-- `/status`: View active council lineup, current mood, group ID, and LLM backend.
+### 12. Administrative & Utility Commands
+- `/status`: View active council lineup, current mood, group ID, open positions, and USDT vaulted.
 - `/setnames`: Triggers `setMyName` to re-sync all 5 bot display names to `{AI}talks`.
 - `/help`: Detailed command cheat sheet.
 - `/cancel` or `/stop`: Abort any currently running debate, vote, or active autopilot.

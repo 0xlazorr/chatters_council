@@ -47,6 +47,8 @@ import config
 from agents import CouncilOrchestrator
 from executor import MSnifferExecutor, SignalExtractor, format_execution_announcement
 from autopilot import autopilot
+from positions import position_manager
+from vault import profit_vault
 
 # Configure Logging
 logging.basicConfig(
@@ -247,10 +249,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>&lt;CA&gt; -m ruthless</code> - Overrides mood for this evaluation\n"
         "<i>💡 Tip: Posting a bare CA with NO flags brings up interactive 1-click buttons with preset investment options!</i>\n\n"
         "<b>🤖 Autonomous Autopilot Stream Trading:</b>\n"
-        "• <code>/auto on</code> - Starts autonomous loop (scans breakout tokens, debates, votes & trades)\n"
+        "• <code>/auto on</code> - Starts autonomous loop (screens breakout tokens, debates, votes & trades)\n"
         "• <code>/auto off</code> - Halts autonomous loop\n"
         "• <code>/auto status</code> - Live statistics (cycles, tokens evaluated, approvals)\n"
         "<i>🛡️ Safety Guard: Autopilot automatically halts if wallet SOL drops below minimum!</i>\n\n"
+        "<b>📈 Positions & Automated Profit-Taking:</b>\n"
+        "• <code>/positions</code> - View open positions, entry prices, and live PnL %\n"
+        "• <code>/sell &lt;CA&gt; [pct]</code> - Manually exit a token position (e.g. <code>/sell &lt;CA&gt; 100</code>)\n"
+        "<i>🎯 Auto-Exits: Monitored 24/7 for Take-Profit (+50%), Trailing Stop (15%), and Stop-Loss (-25%)!</i>\n\n"
+        "<b>🏦 Profit Vault ($25 USDT Sweeper):</b>\n"
+        "• <code>/vault</code> - View total USDT harvested & progress to next $25 sweep\n"
+        "<i>🔒 One-Way Ratchet: $25 profits are auto-swept into USDT. The bot can NEVER convert USDT to SOL!</i>\n\n"
         "<b>💳 Treasury, Wallet & Investment Options:</b>\n"
         "• <code>/wallet</code> - View Market Sniffer execution wallet pubkey & live SOL balance\n"
         "• <code>/invest [amount]</code> - View or change default investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n\n"
@@ -273,6 +282,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     wallet_info = await MSnifferExecutor.get_wallet_status()
     sol_bal = wallet_info.get("sol_balance", 0.0)
     wallet_addr = wallet_info.get("wallet", "Unavailable")
+    open_pos = position_manager.get_open_positions()
 
     lines = [
         "🏛️ <b>AI COUNCIL SYSTEM STATUS</b>",
@@ -281,6 +291,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎭 <b>Current Mood:</b> <code>{council.current_mood.upper() if council else 'ANALYTICAL'}</code>",
         f"🧠 <b>LLM Backend:</b> <code>{backend_desc}</code>",
         f"🤖 <b>Autopilot Loop:</b> <code>{'RUNNING 🟢' if autopilot.is_running else 'STOPPED ⚪'}</code>",
+        f"📈 <b>Active Positions:</b> <code>{len(open_pos)} open</code> (Use /positions)",
+        f"🏦 <b>USDT Profit Vault:</b> <code>${profit_vault.total_usdt_harvested:.2f} USDT</code> (Use /vault)",
         f"💳 <b>Wallet SOL:</b> <code>{sol_bal:.4f} SOL</code> ({wallet_addr[:6]}...{wallet_addr[-4:] if len(wallet_addr) > 10 else ''})",
         f"📍 <b>Group Chat ID:</b> <code>{config.GROUP_CHAT_ID or chat_id}</code>",
         f"⚡ <b>Consensus Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}%</code>",
@@ -329,6 +341,58 @@ async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def positions_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays all currently open positions with entry prices, current prices, and live PnL."""
+    chat_id = check_and_record_chat_id(update)
+    summary = position_manager.get_summary_text()
+    await update.message.reply_text(summary, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def vault_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays Profit Vault status, accumulated USDT, and progress toward next $25 harvest."""
+    chat_id = check_and_record_chat_id(update)
+    wallet_info = await MSnifferExecutor.get_wallet_status()
+    sol_bal = wallet_info.get("sol_balance", 0.0)
+    text = profit_vault.get_status_text(current_sol_balance=sol_bal)
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually triggers selling of a specific token position."""
+    auth, reason = is_authorized_admin(update)
+    if not auth:
+        await update.message.reply_text(f"⛔ {reason}")
+        return
+
+    chat_id = check_and_record_chat_id(update)
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "Usage: <code>/sell &lt;Solana CA&gt; [pct]</code> (e.g. <code>/sell 2e3z... 100</code>)",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    mint = args[0].strip()
+    pct = float(args[1]) if len(args) > 1 else 100.0
+
+    # Hard safety check: never sell USDT
+    if mint == config.USDT_SOLANA_MINT:
+        await update.message.reply_text(
+            "⛔ <b>Safety Error:</b> Cannot sell USDT. Automated USDT -> SOL conversion is strictly prohibited.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    prompt = f"SELL {pct:.1f}% of token {mint}"
+    await execute_council_session(
+        chat_id=chat_id,
+        prompt=prompt,
+        mode="execute",
+        reply_to_id=update.message.message_id,
+    )
 
 
 async def autopilot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1087,6 +1151,9 @@ def main():
     application.add_handler(CommandHandler(["status"], status_command))
     application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
     application.add_handler(CommandHandler(["invest", "setinvest"], invest_command))
+    application.add_handler(CommandHandler(["positions", "pos"], positions_command))
+    application.add_handler(CommandHandler(["vault", "profits"], vault_command))
+    application.add_handler(CommandHandler(["sell"], sell_command))
     application.add_handler(CommandHandler(["autopilot", "auto"], autopilot_command))
     application.add_handler(CommandHandler(["mood"], mood_command))
     application.add_handler(CommandHandler(["setnames"], setnames_command))

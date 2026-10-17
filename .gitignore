@@ -16,6 +16,7 @@ env/
 .vscode/
 .idea/
 
-# Local logs & queues
+# Local logs & queues & runtime state
 *.log
 data/signals_queue.json
+data/*.json

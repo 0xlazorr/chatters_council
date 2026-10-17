@@ -118,8 +118,25 @@ DEFAULT_TRADE_AMOUNT_SOL: float = validate_investment_amount(float(os.getenv("DE
 # Default slippage in basis points (300 bps = 3.0%)
 DEFAULT_SLIPPAGE_BPS: int = int(os.getenv("DEFAULT_SLIPPAGE_BPS", "300"))
 
-# Minimum liquidity floor required for autonomous autopilot tokens (USD)
-AUTOPILOT_MIN_LIQUIDITY_USD: float = float(os.getenv("AUTOPILOT_MIN_LIQUIDITY_USD", "5000.0"))
+# Well-known mints on Solana
+SOL_MINT: str = "So11111111111111111111111111111111111111112"
+USDT_SOLANA_MINT: str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+
+# Position Exit & Profit-Taking Targets
+TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "50.0"))  # Exit at +50% gain
+STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Cut loss at -25%
+TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "15.0"))  # Retrace 15% from peak after profit
+
+# Profit Vault Sweeper (One-way ratchet: sweeps $25 profits to USDT; NEVER converts USDT back to SOL)
+PROFIT_VAULT_ENABLED: bool = os.getenv("PROFIT_VAULT_ENABLED", "true").lower() in ("true", "1", "yes")
+PROFIT_VAULT_THRESHOLD_USD: float = float(os.getenv("PROFIT_VAULT_THRESHOLD_USD", "25.0"))
+PROFIT_VAULT_RESERVE_SOL: float = float(os.getenv("PROFIT_VAULT_RESERVE_SOL", "0.10"))
+
+# Autonomous Background Screening Filters (Only high-conviction breakout tokens reach the Council)
+AUTOPILOT_MIN_LIQUIDITY_USD: float = float(os.getenv("AUTOPILOT_MIN_LIQUIDITY_USD", "10000.0"))
+AUTOPILOT_MIN_VOLUME_24H_USD: float = float(os.getenv("AUTOPILOT_MIN_VOLUME_24H_USD", "25000.0"))
+AUTOPILOT_MIN_1H_CHANGE: float = float(os.getenv("AUTOPILOT_MIN_1H_CHANGE", "1.0"))
+AUTOPILOT_MAX_FDV_USD: float = float(os.getenv("AUTOPILOT_MAX_FDV_USD", "25000000.0"))
 
 
 # =============================================================================
