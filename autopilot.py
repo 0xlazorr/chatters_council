@@ -24,6 +24,7 @@ from telegram.constants import ParseMode
 import config
 from executor import MSnifferExecutor, format_execution_announcement
 from positions import position_manager
+import telemetry
 from vault import profit_vault
 
 logger = logging.getLogger("multi_agent_council.autopilot")
@@ -289,7 +290,7 @@ class AutopilotEngine:
                                 pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
                                 solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exit_res.tx_hash}'>View Solana Transaction</a>" if exit_res.tx_hash else ""
                                 exit_msg = (
-                                    f"🎯 <b>AUTOMATED POSITION EXIT EXECUTED!</b>\n"
+                                    f"🎯 <b>COUNCIL POSITION EXIT EXECUTED: SOLD {html.escape(pos.name)}</b>\n"
                                     f"───────────────────────────────\n"
                                     f"🪙 <b>Token:</b> {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)\n"
                                     f"📉 <b>Exit Trigger:</b> <code>{reason}</code>\n"
@@ -374,76 +375,44 @@ class AutopilotEngine:
                     continue
 
                 mint = qualified_target["mint"]
-                name = qualified_target["name"]
-                symbol = qualified_target["symbol"]
-                dex = qualified_target["dex"]
-                liq = qualified_target["liquidity_usd"]
-                fdv = qualified_target["fdv"]
-                price = qualified_target["price_usd"]
-                vol24 = qualified_target["volume_24h"]
-                change1h = qualified_target["price_change_1h"]
-                chart_url = qualified_target["url"]
                 trade_amt = config.DEFAULT_TRADE_AMOUNT_SOL
 
-                announcement = (
-                    f"🤖 <b>[AUTOPILOT SCAN #{self.cycle_count}] QUALIFIED BREAKOUT DISCOVERED</b>\n"
-                    f"───────────────────────────────\n"
-                    f"🪙 <b>Token:</b> {html.escape(name)} (<code>${html.escape(symbol)}</code>)\n"
-                    f"🔑 <b>Contract:</b> <code>{mint}</code>\n"
-                    f"🏦 <b>DEX:</b> <code>{dex}</code>\n"
-                    f"💧 <b>Liquidity:</b> <code>${liq:,.0f} USD</code> (Floor: &gt;${config.AUTOPILOT_MIN_LIQUIDITY_USD:,.0f})\n"
-                    f"📊 <b>Market Cap (FDV):</b> <code>${fdv:,.0f} USD</code>\n"
-                    f"💵 <b>Price:</b> <code>${price:.6f} USD</code> | <b>1h:</b> <code>{change1h:+.1f}%</code> | <b>24h Vol:</b> <code>${vol24:,.0f}</code>\n"
-                    f"📈 <a href='{chart_url}'>View Live DexScreener Chart</a>\n"
-                    f"🎯 <b>Planned Allocation:</b> <code>{trade_amt:.2f} SOL</code>\n"
-                    f"───────────────────────────────\n"
-                    f"⚖️ <b>Convening AI Council for Institutional Debate & Vote...</b>"
-                )
-                try:
-                    await lead_bot.send_message(
-                        chat_id=chat_id,
-                        text=announcement,
-                        parse_mode=ParseMode.HTML,
-                        disable_web_page_preview=True,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to post candidate announcement: {e}")
+                # Fetch full institutional dossier (DexScreener + RugCheck)
+                dossier = await telemetry.fetch_token_dossier(mint)
+                if not dossier:
+                    dossier = qualified_target
 
-                # -------------------------------------------------------------
-                # 5. Convene Council: Debate and Formal Vote with Real Market Stats
-                # -------------------------------------------------------------
-                prompt = (
-                    f"Institutional council evaluation for {name} (${symbol}) on Solana ({dex}). "
-                    f"Contract Address: {mint}. "
-                    f"Live On-Chain Telemetry: Liquidity = ${liq:,.0f} USD, Market Cap (FDV) = ${fdv:,.0f} USD, "
-                    f"Price = ${price:.6f} USD, 24h Volume = ${vol24:,.0f} USD, 1h Momentum = {change1h:+.1f}%. "
-                    f"Evaluate security, liquidity structure, mathematical EV, and breakout probability. "
-                    f"Cast your official vote on whether to execute BUY allocation of {trade_amt:.2f} SOL."
+                tok_name = dossier.get("name") or qualified_target.get("name") or "Solana Token"
+                tok_symbol = dossier.get("symbol") or qualified_target.get("symbol") or "TOKEN"
+                dex = dossier.get("dex") or qualified_target.get("dex") or "Solana DEX"
+                price = float(dossier.get("price_usd") or qualified_target.get("price_usd") or 0.0)
+                mcap = float(dossier.get("market_cap_usd") or qualified_target.get("fdv") or 0.0)
+                liq = float(dossier.get("liquidity_usd") or qualified_target.get("liquidity_usd") or 0.0)
+
+                prompt = telemetry.format_council_prompt_from_dossier(
+                    dossier=dossier,
+                    action="BUY",
+                    amount_sol=trade_amt,
+                    user_context="Autonomous Autopilot scan discovered high-conviction breakout pattern.",
                 )
 
+                # -------------------------------------------------------------
+                # 5. Silent Background Council Vote (No Group Chat Spam)
+                # -------------------------------------------------------------
+                logger.info(f"Autopilot evaluating {tok_name} (${tok_symbol}) in silent background mode...")
                 try:
-                    vote_summary = await council.run_debate_and_vote(prompt=prompt, chat_id=chat_id)
+                    vote_summary = await council.run_vote(prompt=prompt, chat_id=chat_id, silent=True)
                 except Exception as e:
-                    logger.error(f"Error during autopilot council session: {e}", exc_info=True)
+                    logger.error(f"Error during autopilot council vote for {mint}: {e}", exc_info=True)
                     await asyncio.sleep(self.scan_interval_seconds)
                     continue
-
-                # Post vote summary into group
-                try:
-                    await lead_bot.send_message(
-                        chat_id=chat_id,
-                        text=vote_summary.summary_text,
-                        parse_mode=ParseMode.HTML,
-                    )
-                except Exception as e:
-                    logger.debug(f"Could not post vote summary: {e}")
 
                 # -------------------------------------------------------------
                 # 6. Automatic Execution If Consensus Passes
                 # -------------------------------------------------------------
                 if vote_summary.consensus_passed:
                     self.trades_approved += 1
-                    logger.info(f"Consensus passed for {mint}. Dispatching execution to Market Sniffer...")
+                    logger.info(f"Consensus passed for {tok_name} (${tok_symbol}). Dispatching to Market Sniffer...")
 
                     exec_res = await MSnifferExecutor.execute_consensus(
                         prompt=f"BUY {trade_amt:.2f} SOL of {mint}",
@@ -459,34 +428,45 @@ class AutopilotEngine:
                         # Register active position for automatic exit & profit monitoring
                         position_manager.open_position(
                             mint=mint,
-                            symbol=symbol,
-                            name=name,
+                            symbol=tok_symbol,
+                            name=tok_name,
                             entry_price_usd=price,
                             amount_sol=trade_amt,
                             tx_hash=exec_res.tx_hash or "",
                             exit_strategy=config.DEFAULT_EXIT_STRATEGY,
                         )
 
-                    ann_text = format_execution_announcement(exec_res)
+                    safe_name = html.escape(tok_name)
+                    safe_sym = html.escape(tok_symbol)
+                    solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exec_res.tx_hash}'>View Solana Transaction</a>" if exec_res.tx_hash else ""
+                    approval_pct = (vote_summary.yes_count / vote_summary.total_votes * 100.0) if vote_summary.total_votes > 0 else 100.0
+
+                    buy_msg = (
+                        f"✅ <b>AUTOPILOT CONSENSUS APPROVED: BOUGHT {safe_name}</b>\n"
+                        f"───────────────────────────────\n"
+                        f"🪙 <b>Token:</b> {safe_name} (<code>${safe_sym}</code>)\n"
+                        f"⚡ <b>Action:</b> BUY <code>{trade_amt:.2f} SOL</code> on {dex}\n"
+                        f"📊 <b>Consensus:</b> <code>{vote_summary.yes_count}/{vote_summary.total_votes} YES ({approval_pct:.0f}%)</code>\n"
+                        f"💵 <b>Price:</b> <code>${price:.6f}</code> | <b>Mcap:</b> <code>${mcap:,.0f}</code> | <b>Liq:</b> <code>${liq:,.0f}</code>\n"
+                        f"🚀 <b>Execution:</b> {html.escape(exec_res.message)}"
+                        f"{solscan_link}\n"
+                        f"───────────────────────────────"
+                    )
                     try:
                         await lead_bot.send_message(
                             chat_id=chat_id,
-                            text=ann_text,
+                            text=buy_msg,
                             parse_mode=ParseMode.HTML,
                             disable_web_page_preview=True,
                         )
                     except Exception as e:
-                        logger.error(f"Failed to post execution announcement: {e}")
+                        logger.error(f"Failed to post autopilot buy confirmation: {e}")
                 else:
                     self.trades_rejected += 1
-                    try:
-                        await lead_bot.send_message(
-                            chat_id=chat_id,
-                            text=f"🛑 <b>PROPOSAL REJECTED:</b> Council voted against allocating to <code>{mint}</code>. Autopilot moving to next breakout candidate.",
-                            parse_mode=ParseMode.HTML,
-                        )
-                    except Exception as e:
-                        logger.debug(f"Could not post rejection notice: {e}")
+                    logger.info(
+                        f"🛑 Autopilot proposal rejected by Council for {tok_name} (${tok_symbol}): "
+                        f"{vote_summary.yes_count} YES / {vote_summary.no_count} NO. No trade executed."
+                    )
 
                 # -------------------------------------------------------------
                 # 7. Rest interval between council evaluations

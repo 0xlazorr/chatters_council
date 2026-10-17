@@ -49,6 +49,7 @@ from executor import MSnifferExecutor, SignalExtractor, format_execution_announc
 from autopilot import autopilot
 from positions import position_manager
 from vault import profit_vault
+import telemetry
 
 # Configure Logging
 logging.basicConfig(
@@ -216,11 +217,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏛️ <b>Multi-Agent AI Council is Online!</b>\n\n"
         f"Welcome, {first_name}. The AI Council allows 5-15 autonomous AI models "
         f"to debate, vote, and execute tasks directly inside this Telegram group chat.\n\n"
-        f"<b>Shorthand Commands:</b>\n"
-        f"• <code>/deb &lt;prompt&gt;</code> - Debate Mode (multi-turn discussion)\n"
-        f"• <code>/vot &lt;prompt&gt;</code> - Vote Mode (structured logic & tally)\n"
-        f"• <code>/exe &lt;prompt&gt;</code> - Vote & Execute Mode (consensus triggers MSniffer)\n"
-        f"• <code>/dve &lt;prompt&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute)\n"
+        f"<b>Shorthand Commands (4 Modes):</b>\n"
+        f"• <code>/deb &lt;CA or prompt&gt;</code> - Debate Mode (multi-turn discussion across the 5 AI debaters)\n"
+        f"• <code>/debvote &lt;CA or prompt&gt;</code> (or <code>/dv</code>, <code>/vot</code>) - Debate & Vote Mode (debate + formal consensus vote)\n"
+        f"• <code>/dve &lt;CA or prompt&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute on Solana)\n"
+        f"• <code>/exe &lt;CA or prompt&gt;</code> - Vote & Execute Mode (Silent background evaluation & execution)\n"
         f"• <code>/mood &lt;type&gt;</code> - Switch mood (e.g. skeptical, aggressive, ruthless)\n"
         f"• <code>/status</code> - View active council roster & endpoints\n"
         f"• <code>/command</code> - View all available commands & cheat sheet\n"
@@ -235,22 +236,22 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📖 <b>AI COUNCIL ALL AVAILABLE COMMANDS (/command)</b>\n"
         "───────────────────────────────\n\n"
-        "<b>🗣️ Operational Modes (Slash Commands):</b>\n"
-        "• <code>/deb &lt;prompt&gt;</code> - Multi-turn debate across the 5 models\n"
-        "• <code>/vot &lt;prompt&gt;</code> - Formal vote with rationale & consensus tally\n"
-        "• <code>/exe &lt;prompt&gt;</code> - Vote & Execute: consensus triggers Market Sniffer on Solana\n"
-        "• <code>/dve &lt;prompt&gt;</code> - Full Pipeline: Debate ➔ Vote ➔ Execute\n\n"
+        "<b>🗣️ The 4 Operational Modes:</b>\n"
+        "• <code>/deb &lt;CA or prompt&gt;</code> - <b>Debate Only:</b> Multi-turn debate across all 5 AI models discussing the token using real name, ticker, and on-chain metrics (no vote/trade).\n"
+        "• <code>/debvote &lt;CA or prompt&gt;</code> (or <code>/dv</code>, <code>/vot</code>) - <b>Debate & Vote:</b> Multi-turn debate across models followed by formal consensus vote.\n"
+        "• <code>/dve &lt;CA or prompt&gt;</code> - <b>Debate, Vote & Execute:</b> Multi-turn debate + vote. If consensus passes, auto-executes trade via Market Sniffer on Solana.\n"
+        "• <code>/exe &lt;CA or prompt&gt;</code> - <b>Vote & Execute (Silent Mode):</b> Fast, silent background evaluation & voting. Carries out buy/sell silently without chat spam and posts a single confirmation announcement on consensus!\n\n"
         "<b>🪙 Manual Contract Address (CA) & Flag Triggers:</b>\n"
         "You can simply paste a Solana CA or DEX link into the group chat with flags:\n"
         "• <code>&lt;CA&gt; -dve</code> - Instantly launches Full DVE Pipeline\n"
-        "• <code>&lt;CA&gt; -exe</code> - Instantly launches Vote & Execute\n"
-        "• <code>&lt;CA&gt; -vot</code> - Instantly launches Formal Vote\n"
-        "• <code>&lt;CA&gt; -deb</code> - Instantly launches Debate\n"
+        "• <code>&lt;CA&gt; -exe</code> - Instantly launches Silent Vote & Execute\n"
+        "• <code>&lt;CA&gt; -dv</code> or <code>&lt;CA&gt; -vot</code> - Instantly launches Debate & Vote\n"
+        "• <code>&lt;CA&gt; -deb</code> - Instantly launches Debate Only\n"
         "• <code>&lt;CA&gt; -a 0.50</code> - Selects investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n"
         "• <code>&lt;CA&gt; -hold</code> - Sets exit strategy to Hold Indefinitely (Diamond Hands)\n"
         "• <code>&lt;CA&gt; -tp 75</code> - Overrides Take-Profit target to +75%\n"
         "• <code>&lt;CA&gt; -m ruthless</code> - Overrides mood for this evaluation\n"
-        "<i>💡 Tip: Posting a bare CA with NO flags brings up interactive 1-click buttons with amount & strategy presets!</i>\n\n"
+        "<i>💡 Tip: Posting a bare CA with NO flags brings up the live Token Dossier card (Name, Symbol, Mcap, Liq, Vol, Top 10 Holders) with 1-click preset buttons!</i>\n\n"
         "<b>🤖 Autonomous Autopilot Stream Trading:</b>\n"
         "• <code>/auto on</code> - Starts autonomous loop (screens breakout tokens, debates, votes & trades)\n"
         "• <code>/auto off</code> - Halts autonomous loop\n"
@@ -670,10 +671,10 @@ async def _handle_post_execution(
         return
 
     if action == "BUY":
-        telemetry = await autopilot._enrich_candidate_raw(mint)
-        price = telemetry.get("price_usd", 0.0) if telemetry else 0.0
-        tok_name = telemetry.get("name", symbol or "Token") if telemetry else (symbol or "Token")
-        tok_sym = telemetry.get("symbol", symbol or "TOKEN") if telemetry else (symbol or "TOKEN")
+        raw_telem = await autopilot._enrich_candidate_raw(mint)
+        price = raw_telem.get("price_usd", 0.0) if raw_telem else 0.0
+        tok_name = raw_telem.get("name", symbol or "Token") if raw_telem else (symbol or "Token")
+        tok_sym = raw_telem.get("symbol", symbol or "TOKEN") if raw_telem else (symbol or "TOKEN")
 
         strat = exit_strategy or config.DEFAULT_EXIT_STRATEGY
         pos = position_manager.open_position(
@@ -689,8 +690,8 @@ async def _handle_post_execution(
         logger.info(f"📈 Position registered: {tok_sym} ({mint}) at ${price:.6f} | Strategy: {strat_badge}")
 
     elif action == "SELL":
-        telemetry = await autopilot._enrich_candidate_raw(mint)
-        curr_price = telemetry.get("price_usd", 0.0) if telemetry else 0.0
+        raw_telem = await autopilot._enrich_candidate_raw(mint)
+        curr_price = raw_telem.get("price_usd", 0.0) if raw_telem else 0.0
         position_manager.close_position(
             mint=mint,
             exit_price_usd=curr_price,
@@ -718,8 +719,12 @@ async def execute_council_session(
     exit_strategy: Optional[str] = None,
 ) -> bool:
     """
-    Centralized execution engine for all Council modes (debate, vote, execute, dve).
-    Used by slash commands, manual CA postings with flags, and inline keyboard clicks.
+    Centralized execution engine for all Council modes:
+    1. debate (/deb): Verbal debate across the 5 models using real metrics, no vote.
+    2. debate_vote (/debvote, /dv, /vot): Verbal debate, then formal vote with consensus tally.
+    3. dve (/dve): Debate, Vote & Execute Mode.
+    4. execute (/exe): FAST & SILENT background evaluation & voting. Carries out buying/selling
+       silently and responds that they've bought or sold due to consensus.
     """
     global is_busy, active_task_name
 
@@ -743,49 +748,88 @@ async def execute_council_session(
     if mood_override and mood_override in config.MOOD_PROMPTS:
         council.set_mood(mood_override)
 
+    # 1. Detect Solana CA and enrich with real on-chain dossier
+    mint, action, amount, symbol = SignalExtractor.extract(prompt)
+    dossier = None
+    if mint:
+        dossier = await telemetry.fetch_token_dossier(mint)
+
+    if dossier:
+        tok_name = dossier.get("name", "Token")
+        tok_symbol = dossier.get("symbol", "TOKEN")
+        dex = dossier.get("dex", "Solana DEX")
+        target_display = f"{tok_name} (${tok_symbol})"
+        enriched_prompt = telemetry.format_council_prompt_from_dossier(
+            dossier=dossier,
+            action=action,
+            amount_sol=amount,
+            user_context=prompt,
+        )
+    else:
+        tok_name = symbol or "Asset"
+        tok_symbol = symbol or "TOKEN"
+        dex = "Solana DEX"
+        target_display = prompt[:30]
+        enriched_prompt = prompt
+
     is_busy = True
-    active_task_name = f"{mode.upper()}: {prompt[:30]}..."
+    active_task_name = f"{mode.upper()}: {target_display}"
 
     try:
-        if mode == "debate":
+        # -------------------------------------------------------------
+        # MODE 1: DEBATE ONLY (/deb)
+        # -------------------------------------------------------------
+        if mode in ("debate", "deb"):
             if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text=(
-                        f"🎙️ <b>AI COUNCIL DEBATE COMMENCING</b>\n"
-                        f"───────────────────────────────\n"
-                        f"📌 <b>Topic:</b> <i>{html.escape(prompt)}</i>\n"
-                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-                        f"👥 <b>Active Debaters:</b> {len(council.agents_config)}\n"
-                        f"───────────────────────────────"
-                    ),
-                )
-            success = await council.run_debate(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
+                if dossier:
+                    card_html = telemetry.format_telegram_token_card(dossier, action=action, amount_sol=amount)
+                    await safe_send_message(bot=lead_bot, chat_id=chat_id, text=card_html, disable_web_page_preview=True)
+                else:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text=(
+                            f"🎙️ <b>AI COUNCIL DEBATE COMMENCING</b>\n"
+                            f"───────────────────────────────\n"
+                            f"📌 <b>Topic:</b> <i>{html.escape(prompt)}</i>\n"
+                            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
+                            f"👥 <b>Active Debaters:</b> {len(council.agents_config)}\n"
+                            f"───────────────────────────────"
+                        ),
+                    )
+            success = await council.run_debate(prompt=enriched_prompt, chat_id=chat_id, reply_to_id=reply_to_id, silent=False)
             if success and lead_bot:
+                safe_name = html.escape(tok_name)
+                safe_sym = html.escape(tok_symbol)
                 await safe_send_message(
                     bot=lead_bot,
                     chat_id=chat_id,
-                    text="🏁 <b>Debate Concluded.</b> To hold a formal vote, use <code>/vot &lt;prompt&gt;</code> or <code>/exe</code>.",
+                    text=f"🏁 <b>Debate Concluded on {safe_name} (${safe_sym}).</b> To vote, use <code>/vot {mint or prompt}</code> or <code>/exe</code>.",
                 )
             return success
 
-        elif mode in ("vote", "vot"):
+        # -------------------------------------------------------------
+        # MODE 2: DEBATE AND VOTE (/debvote, /dv, /vot, /vote)
+        # -------------------------------------------------------------
+        elif mode in ("debate_vote", "debvote", "dv", "vot", "vote"):
             if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text=(
-                        f"🗳️ <b>FORMAL COUNCIL VOTE CONVENED</b>\n"
-                        f"───────────────────────────────\n"
-                        f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
-                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-                        f"⚖️ <b>Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}% Majority</code>\n"
-                        f"───────────────────────────────\n"
-                        f"<i>Each council member will now state their rationale and cast an official vote...</i>"
-                    ),
-                )
-            vote_summary = await council.run_vote(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
+                if dossier:
+                    card_html = telemetry.format_telegram_token_card(dossier, action=action, amount_sol=amount)
+                    await safe_send_message(bot=lead_bot, chat_id=chat_id, text=card_html, disable_web_page_preview=True)
+                else:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text=(
+                            f"🗳️ <b>DEBATE & VOTE SESSION: {html.escape(target_display)}</b>\n"
+                            f"───────────────────────────────\n"
+                            f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
+                            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
+                            f"⚖️ <b>Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}% Majority</code>\n"
+                            f"───────────────────────────────"
+                        ),
+                    )
+            vote_summary = await council.run_debate_and_vote(prompt=enriched_prompt, chat_id=chat_id, reply_to_id=reply_to_id, silent=False)
             if lead_bot:
                 await safe_send_message(
                     bot=lead_bot,
@@ -794,22 +838,29 @@ async def execute_council_session(
                 )
             return vote_summary.consensus_passed
 
-        elif mode in ("execute", "exe"):
+        # -------------------------------------------------------------
+        # MODE 3: DEBATE, VOTE & EXECUTE (/dve)
+        # -------------------------------------------------------------
+        elif mode == "dve":
             if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text=(
-                        f"⚡ <b>COUNCIL VOTE & EXECUTE SESSION</b>\n"
-                        f"───────────────────────────────\n"
-                        f"📌 <b>Target Task:</b> <i>{html.escape(prompt)}</i>\n"
-                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-                        f"🐕 <b>Execution Bridge:</b> <code>Market Sniffer (@Msnifferbot)</code>\n"
-                        f"───────────────────────────────\n"
-                        f"<i>Voting commenced. If majority consensus passes, task will execute instantly.</i>"
-                    ),
-                )
-            vote_summary = await council.run_vote(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
+                if dossier:
+                    card_html = telemetry.format_telegram_token_card(dossier, action=action, amount_sol=amount)
+                    await safe_send_message(bot=lead_bot, chat_id=chat_id, text=card_html, disable_web_page_preview=True)
+                else:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text=(
+                            f"🚀 <b>FULL DVE PIPELINE (DEBATE ➔ VOTE ➔ EXECUTE)</b>\n"
+                            f"───────────────────────────────\n"
+                            f"📌 <b>Target:</b> <i>{html.escape(target_display)}</i>\n"
+                            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
+                            f"🐕 <b>Execution Bridge:</b> Market Sniffer\n"
+                            f"───────────────────────────────\n"
+                            f"<b>Phase 1: Multi-Agent Debate Commencing...</b>"
+                        ),
+                    )
+            vote_summary = await council.run_debate_and_vote(prompt=enriched_prompt, chat_id=chat_id, reply_to_id=reply_to_id, silent=False)
             if lead_bot:
                 await safe_send_message(
                     bot=lead_bot,
@@ -833,7 +884,6 @@ async def execute_council_session(
                         text=announcement,
                         disable_web_page_preview=True,
                     )
-                # Register position and monitor exit / profit sweep
                 await _handle_post_execution(
                     prompt=prompt,
                     exec_res=exec_res,
@@ -844,36 +894,35 @@ async def execute_council_session(
                 return exec_res.success
             else:
                 if lead_bot:
+                    safe_name = html.escape(tok_name)
+                    safe_sym = html.escape(tok_symbol)
                     await safe_send_message(
                         bot=lead_bot,
                         chat_id=chat_id,
-                        text="🛑 <b>CONSENSUS NOT REACHED:</b> Task execution aborted by council vote.",
+                        text=f"🛑 <b>CONSENSUS REJECTED:</b> Council voted against executing on <b>{safe_name}</b> (${safe_sym}).",
                     )
                 return False
 
-        elif mode == "dve":
+        # -------------------------------------------------------------
+        # MODE 4: VOTE & EXECUTE (/exe) - SILENT / FAST BACKGROUND MODE
+        # -------------------------------------------------------------
+        elif mode in ("execute", "exe"):
+            # Carry out buying and selling silently in background without sending 5-10 messages!
             if lead_bot:
+                safe_name = html.escape(tok_name)
+                safe_sym = html.escape(tok_symbol)
                 await safe_send_message(
                     bot=lead_bot,
                     chat_id=chat_id,
                     text=(
-                        f"🚀 <b>FULL INSTITUTIONAL PIPELINE (DEBATE ➔ VOTE ➔ EXECUTE)</b>\n"
-                        f"───────────────────────────────\n"
-                        f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
-                        f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-                        f"👥 <b>Debate Rounds:</b> {config.DEBATE_MAX_ROUNDS}\n"
-                        f"🐕 <b>Execution Bridge:</b> Market Sniffer\n"
-                        f"───────────────────────────────\n"
-                        f"<b>Phase 1: Multi-Agent Debate Commencing...</b>"
+                        f"⚡ <b>COUNCIL EVALUATING: {safe_name} (${safe_sym})</b>\n"
+                        f"<i>Conducting background deliberation & voting...</i>"
                     ),
                 )
-            vote_summary = await council.run_debate_and_vote(prompt=prompt, chat_id=chat_id, reply_to_id=reply_to_id)
-            if lead_bot:
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text=vote_summary.summary_text,
-                )
+
+            # Silent in-memory evaluation
+            vote_summary = await council.run_vote(prompt=enriched_prompt, chat_id=chat_id, reply_to_id=reply_to_id, silent=True)
+
             if vote_summary.consensus_passed:
                 exec_res = await MSnifferExecutor.execute_consensus(
                     prompt=prompt,
@@ -883,15 +932,43 @@ async def execute_council_session(
                     broadcaster_bot=lead_bot,
                     reply_to_chat_id=chat_id,
                 )
-                announcement = format_execution_announcement(exec_res)
+
+                safe_name = html.escape(tok_name)
+                safe_sym = html.escape(tok_symbol)
+                solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exec_res.tx_hash}'>View Solana Transaction</a>" if exec_res.tx_hash else ""
+                approval_pct = (vote_summary.yes_count / vote_summary.total_votes * 100.0) if vote_summary.total_votes > 0 else 100.0
+
+                if action == "BUY":
+                    result_msg = (
+                        f"✅ <b>COUNCIL CONSENSUS APPROVED: BOUGHT {safe_name}</b>\n"
+                        f"───────────────────────────────\n"
+                        f"🪙 <b>Token:</b> {safe_name} (<code>${safe_sym}</code>)\n"
+                        f"⚡ <b>Action:</b> BUY <code>{amount:.2f} SOL</code> on {dex}\n"
+                        f"📊 <b>Consensus:</b> <code>{vote_summary.yes_count}/{vote_summary.total_votes} YES ({approval_pct:.0f}%)</code>\n"
+                        f"🚀 <b>Execution:</b> {html.escape(exec_res.message)}"
+                        f"{solscan_link}\n"
+                        f"───────────────────────────────"
+                    )
+                else:
+                    result_msg = (
+                        f"🎯 <b>COUNCIL CONSENSUS APPROVED: SOLD {safe_name}</b>\n"
+                        f"───────────────────────────────\n"
+                        f"🪙 <b>Token:</b> {safe_name} (<code>${safe_sym}</code>)\n"
+                        f"⚡ <b>Action:</b> SOLD <code>{amount:.0f}%</code> back to SOL\n"
+                        f"📊 <b>Consensus:</b> <code>{vote_summary.yes_count}/{vote_summary.total_votes} YES ({approval_pct:.0f}%)</code>\n"
+                        f"🚀 <b>Execution:</b> {html.escape(exec_res.message)}"
+                        f"{solscan_link}\n"
+                        f"───────────────────────────────"
+                    )
+
                 if lead_bot:
                     await safe_send_message(
                         bot=lead_bot,
                         chat_id=chat_id,
-                        text=announcement,
+                        text=result_msg,
                         disable_web_page_preview=True,
                     )
-                # Register position and monitor exit / profit sweep
+
                 await _handle_post_execution(
                     prompt=prompt,
                     exec_res=exec_res,
@@ -901,11 +978,21 @@ async def execute_council_session(
                 )
                 return exec_res.success
             else:
+                safe_name = html.escape(tok_name)
+                safe_sym = html.escape(tok_symbol)
+                rejection_msg = (
+                    f"🛑 <b>COUNCIL CONSENSUS REJECTED: {safe_name}</b>\n"
+                    f"───────────────────────────────\n"
+                    f"🪙 <b>Token:</b> {safe_name} (<code>${safe_sym}</code>)\n"
+                    f"📊 <b>Vote Breakdown:</b> <code>{vote_summary.yes_count} YES / {vote_summary.no_count} NO / {vote_summary.abstain_count} ABSTAIN</code>\n"
+                    f"🛡️ <b>Action:</b> Trade cancelled due to lack of majority consensus to protect treasury.\n"
+                    f"───────────────────────────────"
+                )
                 if lead_bot:
                     await safe_send_message(
                         bot=lead_bot,
                         chat_id=chat_id,
-                        text="🛑 <b>PIPELINE TERMINATED:</b> Proposition failed to secure majority council consensus.",
+                        text=rejection_msg,
                     )
                 return False
 
@@ -931,17 +1018,31 @@ async def deb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def vot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /vot <prompt> (Vote Mode)."""
+    """Handles /vot <prompt> (Debate and Vote Mode)."""
     auth, reason = is_authorized_admin(update)
     if not auth:
         await update.message.reply_text(f"⛔ {reason}")
         return
     prompt = extract_prompt(update, context)
     if not prompt:
-        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/vot &lt;proposition&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/vot &lt;trade proposition or CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
     chat_id = check_and_record_chat_id(update)
-    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="vote", reply_to_id=update.message.message_id)
+    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="debate_vote", reply_to_id=update.message.message_id)
+
+
+async def debvote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles /debvote or /dv <prompt> (Debate and Vote Mode)."""
+    auth, reason = is_authorized_admin(update)
+    if not auth:
+        await update.message.reply_text(f"⛔ {reason}")
+        return
+    prompt = extract_prompt(update, context)
+    if not prompt:
+        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/debvote &lt;trade proposition or CA&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+    chat_id = check_and_record_chat_id(update)
+    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="debate_vote", reply_to_id=update.message.message_id)
 
 
 async def exe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1011,7 +1112,7 @@ def build_ca_keyboard(
 
     # Row 4: Deliberation without execution
     delib_row = [
-        InlineKeyboardButton("🗳️ Vote Only", callback_data=f"vot:{mint}:{selected_amount:.2f}:{strat_code}"),
+        InlineKeyboardButton("🗳️ Debate & Vote", callback_data=f"dv:{mint}:{selected_amount:.2f}:{strat_code}"),
         InlineKeyboardButton("🎙️ Debate Only", callback_data=f"deb:{mint}:{selected_amount:.2f}:{strat_code}"),
     ]
 
@@ -1111,7 +1212,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     """
     Handles regular text messages posted into the group chat:
     1. Detects Solana CAs, Pump.fun links, DexScreener links, etc.
-    2. Checks for flags (-dve, -exe, -vot, -deb, -auto, -a <amt>, -m <mood>)
+    2. Checks for flags (-dve, -exe, -dv, -vot, -deb, -auto, -a <amt>, -m <mood>)
     3. If flag is present: immediately executes that mode for the CA!
     4. If no flag is present: replies with interactive 1-click inline buttons with preset options!
     """
@@ -1144,8 +1245,10 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         mode = "dve"
     elif re.search(r"(?:^|\s)(?:--?(?:exe|execute))\b", text, re.IGNORECASE):
         mode = "exe"
+    elif re.search(r"(?:^|\s)(?:--?(?:debvote|dv))\b", text, re.IGNORECASE):
+        mode = "debate_vote"
     elif re.search(r"(?:^|\s)(?:--?(?:vot|vote))\b", text, re.IGNORECASE):
-        mode = "vote"
+        mode = "debate_vote"
     elif re.search(r"(?:^|\s)(?:--?(?:deb|debate))\b", text, re.IGNORECASE):
         mode = "debate"
     elif re.search(r"(?:^|\s)(?:--?(?:auto|autopilot|loop))\b", text, re.IGNORECASE):
@@ -1192,7 +1295,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     # 5. If specific operational mode flag was attached, run immediately!
-    if mode in ("dve", "exe", "vote", "debate"):
+    if mode in ("dve", "exe", "vote", "debate", "debate_vote"):
         action_desc = "BUY" if action == "BUY" else "SELL"
         prompt = f"{action_desc} {amount:.2f} SOL of token {mint}"
         if symbol:
@@ -1207,19 +1310,24 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
-    # 6. If NO flag attached (bare CA), present interactive 1-click inline keyboard with investment & strategy options!
-    dex_url = f"https://dexscreener.com/solana/{mint}"
+    # 6. If NO flag attached (bare CA), present rich Token Dossier card with interactive preset buttons!
     strat_to_use = exit_strategy or config.DEFAULT_EXIT_STRATEGY
     reply_markup = build_ca_keyboard(mint=mint, selected_amount=amount, strategy=strat_to_use)
 
-    strat_desc = "💎 Hold Indefinitely (Diamond Hands)" if strat_to_use == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}% TP / -25% SL)"
-    card_text = (
-        f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
-        f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
-        f"💰 <b>Selected Investment:</b> <code>{amount:.2f} SOL</code>\n"
-        f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
-        f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
-    )
+    dossier = await telemetry.fetch_token_dossier(mint)
+    if dossier:
+        card_text = telemetry.format_telegram_token_card(dossier, action="BUY", amount_sol=amount)
+        card_text += "\n\n<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+    else:
+        dex_url = f"https://dexscreener.com/solana/{mint}"
+        strat_desc = "💎 Hold Indefinitely (Diamond Hands)" if strat_to_use == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}% TP / -25% SL)"
+        card_text = (
+            f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
+            f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
+            f"💰 <b>Selected Investment:</b> <code>{amount:.2f} SOL</code>\n"
+            f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
+            f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+        )
 
     await update.message.reply_text(
         card_text,
@@ -1274,15 +1382,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             strat = "HOLD_INDEFINITE" if strat_code == "h" else "AUTO_EXIT"
 
             new_markup = build_ca_keyboard(mint=mint, selected_amount=new_amt, strategy=strat)
-            dex_url = f"https://dexscreener.com/solana/{mint}"
-            strat_desc = "💎 Hold Indefinitely" if strat == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
-            updated_text = (
-                f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
-                f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
-                f"💰 <b>Selected Investment:</b> <code>{new_amt:.2f} SOL</code>\n"
-                f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
-                f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
-            )
+            dossier = await telemetry.fetch_token_dossier(mint)
+            if dossier:
+                updated_text = telemetry.format_telegram_token_card(dossier, action="BUY", amount_sol=new_amt)
+                updated_text += "\n\n<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+            else:
+                dex_url = f"https://dexscreener.com/solana/{mint}"
+                strat_desc = "💎 Hold Indefinitely" if strat == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
+                updated_text = (
+                    f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
+                    f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
+                    f"💰 <b>Selected Investment:</b> <code>{new_amt:.2f} SOL</code>\n"
+                    f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
+                    f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+                )
             try:
                 await query.edit_message_text(
                     text=updated_text,
@@ -1307,15 +1420,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             strat = "HOLD_INDEFINITE" if strat_code == "h" else "AUTO_EXIT"
 
             new_markup = build_ca_keyboard(mint=mint, selected_amount=amt, strategy=strat)
-            dex_url = f"https://dexscreener.com/solana/{mint}"
-            strat_desc = "💎 Hold Indefinitely" if strat == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
-            updated_text = (
-                f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
-                f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
-                f"💰 <b>Selected Investment:</b> <code>{amt:.2f} SOL</code>\n"
-                f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
-                f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
-            )
+            dossier = await telemetry.fetch_token_dossier(mint)
+            if dossier:
+                updated_text = telemetry.format_telegram_token_card(dossier, action="BUY", amount_sol=amt)
+                updated_text += "\n\n<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+            else:
+                dex_url = f"https://dexscreener.com/solana/{mint}"
+                strat_desc = "💎 Hold Indefinitely" if strat == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
+                updated_text = (
+                    f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
+                    f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
+                    f"💰 <b>Selected Investment:</b> <code>{amt:.2f} SOL</code>\n"
+                    f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
+                    f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+                )
             try:
                 await query.edit_message_text(
                     text=updated_text,
@@ -1417,7 +1535,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         mode_map = {
             "dve": "dve",
             "exe": "execute",
-            "vot": "vote",
+            "dv": "debate_vote",
+            "vot": "debate_vote",
             "deb": "debate",
         }
         mode = mode_map.get(cmd_type, "dve")
@@ -1462,8 +1581,9 @@ async def post_init(application: Application):
         BotCommand("command", "Display full AI Council command cheatsheet"),
         BotCommand("help", "Detailed system guide and operational modes"),
         BotCommand("dve", "Full Pipeline: Debate ➔ Vote ➔ Execute on Solana"),
-        BotCommand("exe", "Vote & Execute: consensus triggers Market Sniffer"),
-        BotCommand("vot", "Formal Council Vote with majority consensus"),
+        BotCommand("exe", "Vote & Execute (Silent background evaluation & execution)"),
+        BotCommand("debvote", "Debate & Vote: verbal debate then formal consensus vote"),
+        BotCommand("vot", "Debate & Vote: verbal debate then formal consensus vote"),
         BotCommand("deb", "Multi-turn debate across the 5 AI council debaters"),
         BotCommand("auto", "Manage Autonomous Autopilot stream trading (on|off|status)"),
         BotCommand("positions", "View open positions, entry prices, and live PnL %"),
@@ -1538,6 +1658,7 @@ def main():
     application.add_handler(CommandHandler(["cancel", "stop"], cancel_command))
 
     application.add_handler(CommandHandler(["deb", "debate"], deb_command))
+    application.add_handler(CommandHandler(["debvote", "dv"], debvote_command))
     application.add_handler(CommandHandler(["vot", "vote"], vot_command))
     application.add_handler(CommandHandler(["exe", "execute"], exe_command))
     application.add_handler(CommandHandler(["dve"], dve_command))

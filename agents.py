@@ -577,11 +577,12 @@ class CouncilOrchestrator:
         mood_text = self.get_mood_instruction()
 
         base_rules = (
-            "You are participating in an interactive Telegram Group Chat Council debate.\n"
-            "Rule 1: Keep contributions concise, punchy, and direct (2-4 sentences max).\n"
-            "Rule 2: Directly reference or challenge points raised by other council members.\n"
-            "Rule 3: Maintain your distinct analytical persona and domain perspective.\n"
-            "Rule 4: Do NOT repeat greetings or corporate pleasantries. Dive straight into your analysis."
+            "You are participating in an institutional Telegram AI Trading Council.\n"
+            "Rule 1: Always refer to the cryptocurrency token by its official NAME and TICKER (e.g. Bonk ($BONK)), NEVER by its raw contract address (CA).\n"
+            "Rule 2: Base your reasoning strictly on the real live on-chain metrics provided (Market Cap, Liquidity Depth, 24h Volume, Buy/Sell Ratio, Mint/Freeze Authority, and Security Audit).\n"
+            "Rule 3: Keep contributions concise, punchy, and direct (2-4 sentences max).\n"
+            "Rule 4: Directly challenge or build upon points raised by other council members from your specialized domain.\n"
+            "Rule 5: Do NOT repeat greetings or corporate pleasantries. Dive straight into your analysis."
         )
 
         if mode == "debate":
@@ -626,11 +627,12 @@ class CouncilOrchestrator:
         return autogen_agents
 
     async def run_debate(
-        self, prompt: str, chat_id: int, reply_to_id: Optional[int] = None
+        self, prompt: str, chat_id: int, reply_to_id: Optional[int] = None, silent: bool = False
     ) -> bool:
         """
         Executes Debate Mode (/deb):
         Agents engage in multi-turn discussions and critique each other's points.
+        If silent=True, turns are computed in-memory without broadcasting to Telegram.
         """
         async with self._lock:
             autogen_agents = self._create_autogen_agents(mode="debate")
@@ -654,24 +656,26 @@ class CouncilOrchestrator:
                         agent_name = event.source
                         content = event.content
                         logger.info(f"AutoGen Debate turn by {agent_name}: {content[:60]}...")
-                        await self.broadcaster.broadcast_message(
-                            agent_name=agent_name,
-                            chat_id=chat_id,
-                            text=content,
-                            reply_to_message_id=reply_to_id,
-                        )
+                        if not silent:
+                            await self.broadcaster.broadcast_message(
+                                agent_name=agent_name,
+                                chat_id=chat_id,
+                                text=content,
+                                reply_to_message_id=reply_to_id,
+                            )
                 return True
             except Exception as e:
                 logger.error(f"Error during AutoGen debate stream: {e}", exc_info=True)
                 return False
 
     async def run_vote(
-        self, prompt: str, chat_id: int, reply_to_id: Optional[int] = None
+        self, prompt: str, chat_id: int, reply_to_id: Optional[int] = None, silent: bool = False
     ) -> CouncilVoteSummary:
         """
         Executes Vote Mode (/vot):
         Each agent states their logic and casts a structured vote (VOTE: YES / NO).
         Tallies the results and returns CouncilVoteSummary.
+        If silent=True, votes are evaluated in-memory without broadcasting each message to Telegram.
         """
         async with self._lock:
             autogen_agents = self._create_autogen_agents(mode="vote")
@@ -698,13 +702,14 @@ class CouncilOrchestrator:
                         content = event.content
                         logger.info(f"AutoGen Vote turn by {agent_name}: {content[:60]}...")
 
-                        # Broadcast to Telegram group under agent's bot identity
-                        await self.broadcaster.broadcast_message(
-                            agent_name=agent_name,
-                            chat_id=chat_id,
-                            text=content,
-                            reply_to_message_id=reply_to_id,
-                        )
+                        # Broadcast to Telegram group under agent's bot identity if not silent
+                        if not silent:
+                            await self.broadcaster.broadcast_message(
+                                agent_name=agent_name,
+                                chat_id=chat_id,
+                                text=content,
+                                reply_to_message_id=reply_to_id,
+                            )
 
                         # Parse vote
                         vote_res = parse_agent_vote(agent_name, content)
@@ -717,19 +722,19 @@ class CouncilOrchestrator:
             return summary
 
     async def run_debate_and_vote(
-        self, prompt: str, chat_id: int, reply_to_id: Optional[int] = None
+        self, prompt: str, chat_id: int, reply_to_id: Optional[int] = None, silent: bool = False
     ) -> CouncilVoteSummary:
         """
-        Executes Full Pipeline (/dve):
-        1. Debates points across agents
-        2. Conducts formal vote
+        Executes Full Pipeline:
+        1. Debates points across agents (optionally silent)
+        2. Conducts formal vote (optionally silent)
         """
         # Step 1: Debate
-        await self.run_debate(prompt, chat_id, reply_to_id)
-        await asyncio.sleep(1.0)
+        await self.run_debate(prompt, chat_id, reply_to_id, silent=silent)
+        await asyncio.sleep(0.5)
 
-        # Announce transition to voting
-        if chat_id:
+        # Announce transition to voting if not in silent mode
+        if not silent and chat_id:
             lead_bot = self.broadcaster.get_bot(self.agents_config[0].name)
             if lead_bot:
                 try:
@@ -742,5 +747,5 @@ class CouncilOrchestrator:
                     logger.debug(f"Could not send transition announcement: {e}")
 
         # Step 2: Vote
-        summary = await self.run_vote(prompt, chat_id, reply_to_id)
+        summary = await self.run_vote(prompt, chat_id, reply_to_id, silent=silent)
         return summary
