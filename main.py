@@ -49,6 +49,7 @@ from executor import MSnifferExecutor, SignalExtractor, format_execution_announc
 from autopilot import autopilot
 from positions import position_manager
 from vault import profit_vault
+from context_manager import context_manager
 import telemetry
 
 # Configure Logging
@@ -245,6 +246,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• <code>/exe &lt;CA or $ticker&gt;</code> - Silent background vote & buy on Solana\n"
         f"• <code>/dve &lt;CA or $ticker&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute on Solana)\n"
         f"• <code>/auto on|off</code> - Autonomous breakout token scanner & trader\n"
+        f"• <code>/context</code> - View or customize instructions for AI bot voting\n"
         f"• <code>/positions</code> - View open positions & live performance\n"
         f"• <code>/wallet</code> - View wallet address & SOL balance\n"
         f"• <code>/vault</code> - View Profit Vault ($25 USDT sweeps)\n"
@@ -263,7 +265,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/deb &lt;CA, $ticker, or crypto topic&gt;</code> - <b>Crypto Debate:</b> The 5 models debate on-chain metrics, liquidity depth, and risks.\n"
         "• <code>/vot &lt;CA, $ticker, or trade&gt;</code> - <b>Debate & Vote:</b> The models debate and cast majority consensus votes.\n"
         "• <code>/exe &lt;CA or $ticker&gt;</code> - <b>Vote & Execute (Silent):</b> Fast background vote; buys on Solana if consensus passes.\n"
-        "• <code>/dve &lt;CA or $ticker&gt;</code> - <b>Full DVE Pipeline:</b> Verbal debate + vote + on-chain trade execution on consensus.\n\n"
+        "• <code>/dve &lt;CA or $ticker&gt;</code> - <b>Full DVE Pipeline:</b> Verbal debate + vote + on-chain trade execution on consensus.\n"
+        "• <code>/context [instructions]</code> - <b>Dynamic Voting Directives:</b> Customize voting instructions (presets: conservative, aggressive, memecoin).\n\n"
         "<b>🪙 Solana Token Actions:</b>\n"
         "• Paste any Solana CA or DEX link into the group to get a live on-chain briefing card with 1-click execution buttons!\n"
         "• Type <code>$TICKER</code> (e.g. <code>$BONK</code>, <code>$WIF</code>) to automatically resolve on-chain metrics.\n"
@@ -479,6 +482,64 @@ async def tp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except ValueError:
         await update.message.reply_text("⚠️ Invalid number. Usage: <code>/tp 50</code>", parse_mode=ParseMode.HTML)
+
+
+async def context_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handles /context command:
+    - /context : View active voting instruction & preset buttons
+    - /context <custom text> : Set custom voting instructions for the bots
+    - /context reset / /context clear : Reset back to DEFAULT instructions
+    - /context <preset> : Apply built-in preset (conservative, aggressive, memecoin, default)
+    """
+    auth, reason = is_authorized_admin(update)
+    if not auth:
+        await update.message.reply_text(f"⛔ {reason}")
+        return
+
+    chat_id = check_and_record_chat_id(update)
+    args = context.args or []
+    user_name = update.effective_user.first_name if update.effective_user else "Admin"
+
+    if not args:
+        dashboard = context_manager.format_status_dashboard()
+        await update.message.reply_text(
+            dashboard,
+            reply_markup=context_manager.build_keyboard(),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    full_arg = " ".join(args).strip()
+    arg_lower = full_arg.lower()
+
+    if arg_lower in ("reset", "clear", "default"):
+        res = context_manager.reset_to_default(updated_by=user_name)
+        await update.message.reply_text(res, parse_mode=ParseMode.HTML)
+        return
+
+    if arg_lower in ("conservative", "safe", "defense"):
+        ok, res = context_manager.apply_preset("CONSERVATIVE", updated_by=user_name)
+        await update.message.reply_text(res, parse_mode=ParseMode.HTML)
+        return
+
+    if arg_lower in ("aggressive", "scalp", "momentum"):
+        ok, res = context_manager.apply_preset("AGGRESSIVE", updated_by=user_name)
+        await update.message.reply_text(res, parse_mode=ParseMode.HTML)
+        return
+
+    if arg_lower in ("memecoin", "meme", "degen"):
+        ok, res = context_manager.apply_preset("MEMECOIN", updated_by=user_name)
+        await update.message.reply_text(res, parse_mode=ParseMode.HTML)
+        return
+
+    # User provided custom text
+    ok, res = context_manager.set_context(
+        instruction=full_arg,
+        preset_name="CUSTOM",
+        updated_by=user_name,
+    )
+    await update.message.reply_text(res, parse_mode=ParseMode.HTML)
 
 
 async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1899,6 +1960,28 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.debug(f"Error updating exitmode markup: {e}")
         return
 
+    # 6.5. Handle Context Preset selection (ctx:<preset>)
+    if data.startswith("ctx:"):
+        choice = data.split(":", 1)[1]
+        user_name = update.effective_user.first_name if update.effective_user else "Admin"
+        if choice == "refresh":
+            pass
+        elif choice == "default":
+            context_manager.reset_to_default(updated_by=user_name)
+        else:
+            context_manager.apply_preset(choice.upper(), updated_by=user_name)
+
+        dashboard = context_manager.format_status_dashboard()
+        try:
+            await query.edit_message_text(
+                text=dashboard,
+                reply_markup=context_manager.build_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as e:
+            logger.debug(f"Error updating context markup: {e}")
+        return
+
     # 7. Handle Council Action dispatch (dve, exe, vot, deb)
     parts = data.split(":")
     if len(parts) >= 2:
@@ -1961,6 +2044,7 @@ async def post_init(application: Application):
         BotCommand("exe", "Silent background vote & buy on Solana"),
         BotCommand("dve", "Full Pipeline: Debate ➔ Vote ➔ Execute on Solana"),
         BotCommand("auto", "Autonomous trading & frequency (/auto 15m, 1h, 1w)"),
+        BotCommand("context", "View or customize AI bot voting instructions"),
         BotCommand("positions", "View open token positions & live performance"),
         BotCommand("sell", "Manually sell token position (/sell <CA>)"),
         BotCommand("vault", "Profit Vault status & customizable threshold"),
@@ -2019,6 +2103,7 @@ def main():
     application.add_handler(CommandHandler(["status"], status_command))
     application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
     application.add_handler(CommandHandler(["invest", "setinvest"], invest_command))
+    application.add_handler(CommandHandler(["context", "ctx", "directive"], context_command))
     application.add_handler(CommandHandler(["positions", "pos"], positions_command))
     application.add_handler(CommandHandler(["exitmode", "strat", "strategy"], exitmode_command))
     application.add_handler(CommandHandler(["tp", "takeprofit"], tp_command))

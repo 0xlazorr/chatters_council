@@ -47,6 +47,7 @@ from autogen_ext.models.openai import OpenAIChatCompletionClient
 import config
 import telemetry
 from executor import SignalExtractor
+from context_manager import context_manager
 
 logger = logging.getLogger("multi_agent_council.agents")
 
@@ -696,8 +697,11 @@ class CouncilOrchestrator:
                 max_turns=total_turns,
             )
 
+            active_ctx = context_manager.get_active_context()
+            ctx_note = f"\nActive Admin Directive: \"{active_ctx}\"\n" if active_ctx else ""
             debate_task = (
                 f"Discussion Topic / Proposition: {prompt}\n"
+                f"{ctx_note}"
                 f"Provide your concise, unique perspective (1-2 sentences) from your domain persona. "
                 f"Directly challenge or build upon points raised by other council members."
             )
@@ -738,6 +742,9 @@ class CouncilOrchestrator:
                 "Grok": "Focus on holder distribution and contrarian dump risk. Vote NO if top 10 holders control > 50% of supply.",
             }
 
+            active_ctx = context_manager.get_active_context()
+            ctx_injection = f"\n🎯 ACTIVE VOTING DIRECTIVE (Admin Instruction):\n\"{active_ctx}\"\nYou must strictly incorporate this directive into your evaluation and final vote!\n" if active_ctx else ""
+
             async def _vote_agent(agent_cfg: config.AgentConfig) -> VoteResult:
                 client = create_model_client(agent_cfg)
                 sys_msg = self._build_system_message(agent_cfg, mode="vote")
@@ -746,6 +753,7 @@ class CouncilOrchestrator:
                     f"COUNCIL PROPOSITION & DATA BRIEFING:\n{prompt}\n\n"
                     f"YOUR MANDATE ({agent_cfg.name} - {agent_cfg.role_description}):\n"
                     f"• {mandate}\n"
+                    f"{ctx_injection}\n"
                     f"• State your 1-2 sentence rationale citing the specific metrics above.\n"
                     f"• Conclude on the very last line with:\n"
                     f"VOTE: YES  or  VOTE: NO"
