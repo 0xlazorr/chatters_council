@@ -30,7 +30,17 @@ import urllib.parse
 import json
 import re
 
-from telegram import Bot, BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Bot,
+    BotCommand,
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MessageEntity,
+    BotCommandScopeDefault,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllChatAdministrators,
+)
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, TimedOut, NetworkError, TelegramError, RetryAfter
 from telegram.request import HTTPXRequest
@@ -250,6 +260,54 @@ async def safe_send_message(
             logger.error(f"Unexpected error in safe_send_message: {ex}")
             return False
     return False
+
+
+class CouncilCommandHandler(CommandHandler):
+    """
+    Accepts commands addressed to ANY council bot, council alias, or plain commands
+    without any bot username attached (e.g. /menu, /buy, /mode).
+    Prevents Telegram group chats from locking commands exclusively to @claudetalkbbot.
+    """
+    COUNCIL_BOT_USERNAMES = {
+        "claudetalkbbot", "gpttalkbbot", "deepseektalkbbot",
+        "geminitalkbbot", "groktalkbbot", "council", "chatters", "msnifferbot"
+    }
+
+    def check_update(self, update: object):
+        if isinstance(update, Update) and update.effective_message:
+            message = update.effective_message
+            if (
+                message.entities
+                and message.entities[0].type == MessageEntity.BOT_COMMAND
+                and message.entities[0].offset == 0
+                and message.text
+                and message.get_bot()
+            ):
+                command = message.text[1 : message.entities[0].length]
+                args = message.text.split()[1:]
+                command_parts = command.split("@")
+
+                cmd_name = command_parts[0].lower()
+                if cmd_name not in self.commands:
+                    return None
+
+                # If command has a target username (e.g. /menu@claudetalkbbot or /menu@gpttalkbbot)
+                if len(command_parts) > 1:
+                    target_bot = command_parts[1].lower()
+                    if (
+                        target_bot != message.get_bot().username.lower()
+                        and target_bot not in self.COUNCIL_BOT_USERNAMES
+                    ):
+                        return None
+
+                if not self._check_correct_args(args):
+                    return None
+
+                filter_result = self.filters.check_update(update)
+                if filter_result:
+                    return args, filter_result
+                return False
+        return None
 
 
 # =============================================================================
@@ -2785,24 +2843,13 @@ async def post_init(application: Application):
         logger.info("Resuming persistent Autopilot scanning loop...")
         await autopilot.start(chat_id=config.GROUP_CHAT_ID, lead_bot=application.bot, council_orchestrator=council)
 
-    # Register simplified bot commands menu in Telegram UI
-    bot_commands = [
-        BotCommand("menu", "📱 Master Control Dashboard & 1-Click Buttons"),
-        BotCommand("mode", "🎯 Exit Mode (Smart Runner, Diamond Hold, 2x, Scalp)"),
-        BotCommand("portfolio", "📊 View Holdings & 1-Tap Token Exit Switcher"),
-        BotCommand("buy", "⚡ Deliberate & Buy Token (/buy <CA> or paste CA)"),
-        BotCommand("sell", "🔴 Sell Token Position (/sell <CA>)"),
-        BotCommand("auto", "🤖 Autopilot Scanner (/auto on|off)"),
-        BotCommand("wallet", "💳 Trading Wallet & SOL Balance"),
-        BotCommand("incubator", "🧪 2-Hour Seasoning Queue & Mature Tokens"),
-        BotCommand("security", "🛡️ Live Security Audit & Protection Status"),
-        BotCommand("help", "📖 Simple 3-Step Guide"),
-    ]
-    try:
-        await application.bot.set_my_commands(bot_commands)
-        logger.info("✅ Telegram bot command menu registered successfully.")
-    except Exception as ce:
-        logger.debug(f"Could not register command menu: {ce}")
+    # Ensure bot commands are not locked to @claudetalkbbot in Telegram group chats
+    for scope in (BotCommandScopeDefault(), BotCommandScopeAllGroupChats(), BotCommandScopeAllChatAdministrators()):
+        try:
+            await application.bot.delete_my_commands(scope=scope)
+            logger.info(f"✅ Cleared scoped bot commands for {scope.__class__.__name__} so commands remain universal (/menu).")
+        except Exception as ce:
+            logger.debug(f"Could not clear commands for scope {scope}: {ce}")
 
 
 def main():
@@ -2841,34 +2888,34 @@ def main():
         .build()
     )
 
-    # 1. Primary Clean Command Handlers
-    application.add_handler(CommandHandler(["menu", "start", "dashboard"], menu_command))
-    application.add_handler(CommandHandler(["mode", "strat", "strategy", "exitmode"], exitmode_command))
-    application.add_handler(CommandHandler(["portfolio", "p", "positions", "pos", "holdings"], portfolio_command))
-    application.add_handler(CommandHandler(["buy"], buy_command))
-    application.add_handler(CommandHandler(["sell"], sell_command))
-    application.add_handler(CommandHandler(["auto", "autopilot", "interval", "freq"], autopilot_command))
-    application.add_handler(CommandHandler(["incubator", "watchlist", "incubating", "seasoning"], incubator_command))
-    application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
-    application.add_handler(CommandHandler(["security", "audit", "safe"], security_command))
-    application.add_handler(CommandHandler(["help", "command", "commands", "guide"], help_command))
+    # 1. Primary Clean Command Handlers (Universally handles /menu, /mode, etc. across any bot or plain /cmd)
+    application.add_handler(CouncilCommandHandler(["menu", "start", "dashboard"], menu_command))
+    application.add_handler(CouncilCommandHandler(["mode", "strat", "strategy", "exitmode"], exitmode_command))
+    application.add_handler(CouncilCommandHandler(["portfolio", "p", "positions", "pos", "holdings"], portfolio_command))
+    application.add_handler(CouncilCommandHandler(["buy"], buy_command))
+    application.add_handler(CouncilCommandHandler(["sell"], sell_command))
+    application.add_handler(CouncilCommandHandler(["auto", "autopilot", "interval", "freq"], autopilot_command))
+    application.add_handler(CouncilCommandHandler(["incubator", "watchlist", "incubating", "seasoning"], incubator_command))
+    application.add_handler(CouncilCommandHandler(["wallet", "bal", "balance"], wallet_command))
+    application.add_handler(CouncilCommandHandler(["security", "audit", "safe"], security_command))
+    application.add_handler(CouncilCommandHandler(["help", "command", "commands", "guide"], help_command))
 
     # Aliases & Advanced Controls
-    application.add_handler(CommandHandler(["status"], status_command))
-    application.add_handler(CommandHandler(["cancel", "stop"], cancel_command))
-    application.add_handler(CommandHandler(["invest", "setinvest"], invest_command))
-    application.add_handler(CommandHandler(["context", "ctx", "directive"], context_command))
-    application.add_handler(CommandHandler(["tp", "takeprofit"], tp_command))
-    application.add_handler(CommandHandler(["vault", "profits"], vault_command))
-    application.add_handler(CommandHandler(["mood"], mood_command))
-    application.add_handler(CommandHandler(["setnames"], setnames_command))
+    application.add_handler(CouncilCommandHandler(["status"], status_command))
+    application.add_handler(CouncilCommandHandler(["cancel", "stop"], cancel_command))
+    application.add_handler(CouncilCommandHandler(["invest", "setinvest"], invest_command))
+    application.add_handler(CouncilCommandHandler(["context", "ctx", "directive"], context_command))
+    application.add_handler(CouncilCommandHandler(["tp", "takeprofit"], tp_command))
+    application.add_handler(CouncilCommandHandler(["vault", "profits"], vault_command))
+    application.add_handler(CouncilCommandHandler(["mood"], mood_command))
+    application.add_handler(CouncilCommandHandler(["setnames"], setnames_command))
 
     # Shorthand Pipeline triggers
-    application.add_handler(CommandHandler(["deb", "debate"], deb_command))
-    application.add_handler(CommandHandler(["debvote", "dv"], debvote_command))
-    application.add_handler(CommandHandler(["vot", "vote"], vot_command))
-    application.add_handler(CommandHandler(["exe", "execute"], exe_command))
-    application.add_handler(CommandHandler(["dve"], dve_command))
+    application.add_handler(CouncilCommandHandler(["deb", "debate"], deb_command))
+    application.add_handler(CouncilCommandHandler(["debvote", "dv"], debvote_command))
+    application.add_handler(CouncilCommandHandler(["vot", "vote"], vot_command))
+    application.add_handler(CouncilCommandHandler(["exe", "execute"], exe_command))
+    application.add_handler(CouncilCommandHandler(["dve"], dve_command))
 
     # 2. Callback query handler for inline button clicks
     application.add_handler(CallbackQueryHandler(handle_callback_query))
