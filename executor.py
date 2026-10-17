@@ -48,17 +48,17 @@ class SignalExtractor:
     """Extracts Solana contract addresses, actions, and trade parameters from prompt & consensus."""
 
     @classmethod
-    def extract(cls, prompt: str, consensus_summary: str = "") -> Tuple[str, str, float, str]:
+    def extract(cls, prompt: str, consensus_summary: str = "", reply_text: str = "") -> Tuple[str, str, float, str]:
         """
-        Extracts (mint_address, action, amount, symbol) from text.
+        Extracts (mint_address, action, amount, symbol) from prompt, consensus, or reply text.
         Defaults: action="BUY", amount=DEFAULT_TRADE_AMOUNT_SOL.
         """
-        combined = f"{prompt} {consensus_summary}"
+        combined = f"{prompt} {consensus_summary} {reply_text}".strip()
 
         # 1. Extract Solana Mint Address
-        # Check for known dex URLs first (pump.fun, dexscreener, gmgn, birdeye, solscan)
+        # Check for known dex URLs first (pump.fun, dexscreener, gmgn, birdeye, solscan, photon, bullx, raydium, jup)
         dex_match = re.search(
-            r"(?:pump\.fun/(?:coin/)?|dexscreener\.com/solana/|gmgn\.ai/sol/token/|birdeye\.so/token/|solscan\.io/token/)([1-9A-HJ-NP-Za-km-z]{32,44})",
+            r"(?:pump\.fun/(?:coin/)?|pad\.pump\.fun/|dexscreener\.com/solana/|gmgn\.ai/sol/token/|birdeye\.so/token/|solscan\.io/token/|photon-sol\.tinyastro\.io/en/r/|bullx\.io/terminal\?(?:.*address=)?|axiom\.trade/token/|raydium\.io/swap/\?(?:.*outputMint=)?|jup\.ag/swap/(?:[A-Za-z0-9]+-)?)([1-9A-HJ-NP-Za-km-z]{32,44})",
             combined,
             re.IGNORECASE,
         )

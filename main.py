@@ -751,6 +751,7 @@ async def execute_council_session(
     reply_to_id: Optional[int] = None,
     mood_override: Optional[str] = None,
     exit_strategy: Optional[str] = None,
+    mint_override: Optional[str] = None,
 ) -> bool:
     """
     Centralized execution engine for all Council modes:
@@ -784,6 +785,8 @@ async def execute_council_session(
 
     # 1. Detect Solana CA and enrich with real on-chain dossier
     mint, action, amount, symbol = SignalExtractor.extract(prompt)
+    if mint_override:
+        mint = mint_override
     dossier = None
     if mint:
         dossier = await telemetry.fetch_token_dossier(mint)
@@ -1043,11 +1046,20 @@ async def deb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⛔ {reason}")
         return
     prompt = extract_prompt(update, context)
-    if not prompt:
-        await update.message.reply_text("🗣️ <b>Usage:</b> <code>/deb &lt;prompt&gt;</code>", parse_mode=ParseMode.HTML)
+    reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
+    mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not prompt and not mint:
+        await update.message.reply_text("🗣️ <b>Usage:</b> <code>/deb &lt;prompt or CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
+    full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
-    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="debate", reply_to_id=update.message.message_id)
+    await execute_council_session(
+        chat_id=chat_id,
+        prompt=full_prompt,
+        mode="debate",
+        reply_to_id=update.message.message_id,
+        mint_override=mint if mint else None,
+    )
 
 
 async def vot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1057,11 +1069,20 @@ async def vot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⛔ {reason}")
         return
     prompt = extract_prompt(update, context)
-    if not prompt:
+    reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
+    mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not prompt and not mint:
         await update.message.reply_text("🗳️ <b>Usage:</b> <code>/vot &lt;trade proposition or CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
+    full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
-    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="debate_vote", reply_to_id=update.message.message_id)
+    await execute_council_session(
+        chat_id=chat_id,
+        prompt=full_prompt,
+        mode="debate_vote",
+        reply_to_id=update.message.message_id,
+        mint_override=mint if mint else None,
+    )
 
 
 async def debvote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1071,11 +1092,20 @@ async def debvote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⛔ {reason}")
         return
     prompt = extract_prompt(update, context)
-    if not prompt:
+    reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
+    mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not prompt and not mint:
         await update.message.reply_text("🗳️ <b>Usage:</b> <code>/debvote &lt;trade proposition or CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
+    full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
-    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="debate_vote", reply_to_id=update.message.message_id)
+    await execute_council_session(
+        chat_id=chat_id,
+        prompt=full_prompt,
+        mode="debate_vote",
+        reply_to_id=update.message.message_id,
+        mint_override=mint if mint else None,
+    )
 
 
 async def exe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1085,11 +1115,20 @@ async def exe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⛔ {reason}")
         return
     prompt = extract_prompt(update, context)
-    if not prompt:
+    reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
+    mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not prompt and not mint:
         await update.message.reply_text("⚡ <b>Usage:</b> <code>/exe &lt;trade proposition with Solana CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
+    full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
-    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="execute", reply_to_id=update.message.message_id)
+    await execute_council_session(
+        chat_id=chat_id,
+        prompt=full_prompt,
+        mode="execute",
+        reply_to_id=update.message.message_id,
+        mint_override=mint if mint else None,
+    )
 
 
 async def dve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1099,11 +1138,20 @@ async def dve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⛔ {reason}")
         return
     prompt = extract_prompt(update, context)
-    if not prompt:
+    reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
+    mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not prompt and not mint:
         await update.message.reply_text("🚀 <b>Usage:</b> <code>/dve &lt;trade proposition with Solana CA&gt;</code>", parse_mode=ParseMode.HTML)
         return
+    full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
-    await execute_council_session(chat_id=chat_id, prompt=prompt, mode="dve", reply_to_id=update.message.message_id)
+    await execute_council_session(
+        chat_id=chat_id,
+        prompt=full_prompt,
+        mode="dve",
+        reply_to_id=update.message.message_id,
+        mint_override=mint if mint else None,
+    )
 
 
 def build_autopilot_keyboard(current_interval: int, is_running: bool) -> InlineKeyboardMarkup:
@@ -1438,10 +1486,64 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_to_id=update.message.message_id,
             mood_override=mood_override,
             exit_strategy=exit_strategy,
+            mint_override=mint,
         )
         return
 
-    # 6. If NO flag attached (bare CA), present rich Token Dossier card with simple 1-click buttons!
+    # Check if this is a conversational query or question about the token
+    is_private = bool(update.effective_chat and update.effective_chat.type == "private")
+    lower_text = text.lower()
+
+    target_agent = None
+    for agent_cfg in config.get_active_agents():
+        handles = [
+            f"@{agent_cfg.username.lower()}",
+            f"{agent_cfg.name.lower()},",
+            f"{agent_cfg.name.lower()}:",
+            f"hey {agent_cfg.name.lower()}",
+        ]
+        if any(h in lower_text for h in handles):
+            target_agent = agent_cfg.name
+            break
+
+    if not target_agent and update.message.reply_to_message and update.message.reply_to_message.from_user:
+        rep_user = update.message.reply_to_message.from_user
+        if rep_user.is_bot:
+            for agent_cfg in config.get_active_agents():
+                if rep_user.username and rep_user.username.lower() == agent_cfg.username.lower():
+                    target_agent = agent_cfg.name
+                    break
+                elif rep_user.first_name and agent_cfg.name.lower() in rep_user.first_name.lower():
+                    target_agent = agent_cfg.name
+                    break
+
+    # If addressed to a single bot or in private DM with questions about this CA
+    if is_private or target_agent:
+        agent_to_respond = target_agent or "Claude"
+        await council.run_single_agent_reply(
+            agent_name=agent_to_respond,
+            prompt=text,
+            chat_id=chat_id,
+            reply_to_id=update.message.message_id,
+        )
+        return
+
+    # If conversational question or addressed to council
+    council_triggers = ("@council", "council", "chatters", "everyone", "guys", "bots", "all")
+    is_council_addressed = any(t in lower_text for t in council_triggers)
+    is_question = "?" in text or any(lower_text.startswith(w) for w in ("what", "how", "why", "who", "when", "is", "can", "should", "tell", "explain", "think", "which", "analyze"))
+
+    if is_council_addressed or is_question:
+        await execute_council_session(
+            chat_id=chat_id,
+            prompt=text,
+            mode="debate",
+            reply_to_id=update.message.message_id,
+            mint_override=mint,
+        )
+        return
+
+    # 6. If NO flag attached and no conversation (pure CA posting), present rich Token Dossier card with 1-click buttons!
     strat_to_use = exit_strategy or config.DEFAULT_EXIT_STRATEGY
     reply_markup = build_ca_keyboard(mint=mint, selected_amount=amount, strategy=strat_to_use)
 

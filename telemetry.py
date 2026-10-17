@@ -72,13 +72,27 @@ async def fetch_token_dossier(mint: str) -> Optional[Dict[str, Any]]:
             key=lambda p: float((p.get("liquidity") or {}).get("usd") or 0.0)
         )
 
+    # Parse RugCheck security data
+    rug = rug_data or {}
+    token_meta = rug.get("tokenMeta") or {}
+    mint_auth_raw = token_meta.get("mintAuthority")
+    freeze_auth_raw = token_meta.get("freezeAuthority")
+
+    mint_auth = "REVOKED 🟢" if mint_auth_raw is None else "ACTIVE ⚠️"
+    freeze_auth = "REVOKED 🟢" if freeze_auth_raw is None else "ACTIVE ⚠️"
+    score = rug.get("score", 0)
+    top_holders = rug.get("topHolders") or []
+    top10_pct = round(sum(float(h.get("pct", 0) or 0) for h in top_holders[:10]), 2)
+    risks = [rk.get("name") for rk in (rug.get("risks") or []) if rk.get("name")]
+
     if not best_pair:
         logger.warning(f"No active DEX trading pairs found on Solana for {clean_mint}")
-        # Return fallback minimal info if DEX data is missing
+        fallback_name = token_meta.get("name") or f"Token {clean_mint[:6]}"
+        fallback_symbol = (token_meta.get("symbol") or clean_mint[:4]).replace("$", "").upper()
         return {
             "mint": clean_mint,
-            "name": f"Token {clean_mint[:6]}",
-            "symbol": clean_mint[:4].upper(),
+            "name": fallback_name,
+            "symbol": fallback_symbol,
             "price_usd": 0.0,
             "market_cap_usd": 0.0,
             "fdv_usd": 0.0,
@@ -89,18 +103,18 @@ async def fetch_token_dossier(mint: str) -> Optional[Dict[str, Any]]:
             "sells_24h": 0,
             "change_1h": 0.0,
             "change_24h": 0.0,
-            "dex": "Solana DEX",
+            "dex": "Solana DEX (Unlisted/Early)",
             "pair_url": f"https://dexscreener.com/solana/{clean_mint}",
-            "mint_authority": "Unknown",
-            "freeze_authority": "Unknown",
-            "top10_pct": 0.0,
-            "rugcheck_score": 0,
-            "risks": [],
+            "mint_authority": mint_auth,
+            "freeze_authority": freeze_auth,
+            "top10_pct": top10_pct,
+            "rugcheck_score": score,
+            "risks": risks,
         }
 
     base = best_pair.get("baseToken") or {}
-    name = base.get("name") or "Solana Token"
-    symbol = (base.get("symbol") or "TOKEN").replace("$", "").upper()
+    name = base.get("name") or token_meta.get("name") or "Solana Token"
+    symbol = (base.get("symbol") or token_meta.get("symbol") or "TOKEN").replace("$", "").upper()
 
     price = float(best_pair.get("priceUsd") or 0.0)
     fdv = float(best_pair.get("fdv") or best_pair.get("marketCap") or 0.0)
@@ -115,19 +129,6 @@ async def fetch_token_dossier(mint: str) -> Optional[Dict[str, Any]]:
     sells24 = int(txns24.get("sells") or 0)
     dex = (best_pair.get("dexId") or "Raydium").upper()
     pair_url = best_pair.get("url") or f"https://dexscreener.com/solana/{clean_mint}"
-
-    # Parse RugCheck security data
-    rug = rug_data or {}
-    token_meta = rug.get("tokenMeta") or {}
-    mint_auth_raw = token_meta.get("mintAuthority")
-    freeze_auth_raw = token_meta.get("freezeAuthority")
-
-    mint_auth = "REVOKED (Renounced / Cannot Print) 🟢" if mint_auth_raw is None else "ACTIVE ⚠️"
-    freeze_auth = "REVOKED (Cannot Blacklist Wallets) 🟢" if freeze_auth_raw is None else "ACTIVE ⚠️"
-    score = rug.get("score", 0)
-    top_holders = rug.get("topHolders") or []
-    top10_pct = round(sum(float(h.get("pct", 0) or 0) for h in top_holders[:10]), 2)
-    risks = [rk.get("name") for rk in (rug.get("risks") or []) if rk.get("name")]
 
     return {
         "mint": clean_mint,
@@ -160,58 +161,67 @@ def format_council_prompt_from_dossier(
     user_context: str = "",
 ) -> str:
     """
-    Constructs a rich, institutional council briefing string from the token dossier.
-    Enforces that the AI models speak about the token using its real NAME and TICKER,
-    evaluating real on-chain numbers rather than raw CA strings.
+    Constructs a high-density, token-efficient institutional council briefing string.
+    Cuts prompt token overhead while ensuring complete accuracy and verifiable data.
     """
     name = dossier.get("name", "Unknown Token")
     symbol = dossier.get("symbol", "TOKEN")
     mint = dossier.get("mint", "")
     dex = dossier.get("dex", "Solana DEX")
-    price = dossier.get("price_usd", 0.0)
-    mcap = dossier.get("market_cap_usd", 0.0)
-    liq = dossier.get("liquidity_usd", 0.0)
-    vol24 = dossier.get("volume_24h_usd", 0.0)
-    vol1 = dossier.get("volume_1h_usd", 0.0)
-    c1h = dossier.get("change_1h", 0.0)
-    c24h = dossier.get("change_24h", 0.0)
-    buys = dossier.get("buys_24h", 0)
-    sells = dossier.get("sells_24h", 0)
+    price = float(dossier.get("price_usd") or 0.0)
+    mcap = float(dossier.get("market_cap_usd") or dossier.get("fdv_usd") or 0.0)
+    liq = float(dossier.get("liquidity_usd") or 0.0)
+    vol24 = float(dossier.get("volume_24h_usd") or 0.0)
+    vol1 = float(dossier.get("volume_1h_usd") or 0.0)
+    c1h = float(dossier.get("change_1h") or 0.0)
+    c24h = float(dossier.get("change_24h") or 0.0)
+    buys = int(dossier.get("buys_24h") or 0)
+    sells = int(dossier.get("sells_24h") or 0)
     total_txns = buys + sells
     buy_ratio = (buys / total_txns * 100.0) if total_txns > 0 else 50.0
+    liq_ratio = (liq / mcap * 100.0) if mcap > 0 else 0.0
 
     mint_auth = dossier.get("mint_authority", "Unknown")
     freeze_auth = dossier.get("freeze_authority", "Unknown")
-    top10 = dossier.get("top10_pct", 0.0)
+    top10 = float(dossier.get("top10_pct") or 0.0)
     score = dossier.get("rugcheck_score", 0)
     risks = dossier.get("risks") or []
-    risks_str = ", ".join(risks) if risks else "No major red flags detected"
+    risks_str = ", ".join(risks[:3]) if risks else "Clean"
 
-    extra_note = f"\nUser Note: {user_context}" if user_context else ""
+    extra_note = f" (Context: {user_context})" if user_context and user_context != mint else ""
 
     return (
-        f"INSTITUTIONAL ASSET DOSSIER: {name} (${symbol})\n"
-        f"Contract Address: {mint}\n"
-        f"DEX Exchange: {dex}\n\n"
-        f"--- REAL-TIME ON-CHAIN FINANCIAL METRICS ---\n"
-        f"• Current Price: ${price:.8f} USD\n"
-        f"• Market Capitalization (FDV): ${mcap:,.0f} USD\n"
-        f"• Pool Liquidity Depth: ${liq:,.0f} USD (Liquidity/Mcap Ratio: {(liq/mcap*100 if mcap > 0 else 0):.2f}%)\n"
-        f"• 24h Trading Volume: ${vol24:,.0f} USD (1h Volume: ${vol1:,.0f} USD)\n"
-        f"• 24h Activity: {buys:,} Buys / {sells:,} Sells ({buy_ratio:.1f}% Buy Pressure, Net: {buys - sells:+d})\n"
-        f"• Price Momentum: 1h: {c1h:+.2f}% | 24h: {c24h:+.2f}%\n\n"
-        f"--- ON-CHAIN SECURITY & HOLDER AUDIT ---\n"
-        f"• Mint Authority: {mint_auth}\n"
-        f"• Freeze Authority: {freeze_auth}\n"
-        f"• Top 10 Holders Control: {top10:.1f}% of circulating supply\n"
-        f"• Security Risk Score: {score} (Lower is safer)\n"
-        f"• Identified Warnings: {risks_str}\n\n"
-        f"COUNCIL PROPOSITION:\n"
-        f"Evaluate whether the Council should execute {action} of {amount_sol:.2f} SOL for {name} (${symbol}).{extra_note}\n\n"
-        f"MANDATORY COUNCIL RULES:\n"
-        f"1. Refer to this asset by its name '{name}' and ticker '${symbol}'. Do NOT quote the raw contract address.\n"
-        f"2. Scrutinize the real metrics above (liquidity depth, buy pressure, holder distribution, and security).\n"
-        f"3. Speak strictly from your specialized domain persona in 2-3 concise, impactful sentences."
+        f"ASSET DOSSIER: {name} (${symbol}) | Mint: {mint} | DEX: {dex}\n"
+        f"• Price: ${price:.8f} | Mcap/FDV: ${mcap:,.0f} | Liquidity: ${liq:,.0f} ({liq_ratio:.1f}% ratio)\n"
+        f"• 24h Vol: ${vol24:,.0f} (1h Vol: ${vol1:,.0f}) | Activity: {buys:,}B/{sells:,}S ({buy_ratio:.1f}% buys) | 1h: {c1h:+.1f}%, 24h: {c24h:+.1f}%\n"
+        f"• Security: Mint Auth: {mint_auth} | Freeze Auth: {freeze_auth} | Top 10 Holders: {top10:.1f}% | Risk Score: {score} ({risks_str})\n"
+        f"PROPOSITION: Evaluate {action} {amount_sol:.2f} SOL of {name} (${symbol}).{extra_note}\n"
+        f"MANDATE: Refer to this asset as '{name}' (${symbol}). State your 1-2 sentence rationale citing these exact metrics."
+    )
+
+
+def format_single_agent_token_context(dossier: Dict[str, Any], user_query: str) -> str:
+    """Provides a concise, token-efficient context packet for 1-on-1 agent conversations."""
+    name = dossier.get("name", "Unknown Token")
+    symbol = dossier.get("symbol", "TOKEN")
+    price = float(dossier.get("price_usd") or 0.0)
+    mcap = float(dossier.get("market_cap_usd") or 0.0)
+    liq = float(dossier.get("liquidity_usd") or 0.0)
+    vol24 = float(dossier.get("volume_24h_usd") or 0.0)
+    c1h = float(dossier.get("change_1h") or 0.0)
+    mint_auth = dossier.get("mint_authority", "Unknown")
+    freeze_auth = dossier.get("freeze_authority", "Unknown")
+    top10 = float(dossier.get("top10_pct") or 0.0)
+    score = dossier.get("rugcheck_score", 0)
+
+    return (
+        f"User Query: {user_query}\n\n"
+        f"Real-Time On-Chain Data for {name} (${symbol}):\n"
+        f"• Price: ${price:.8f} | Mcap: ${mcap:,.0f} | Liquidity: ${liq:,.0f}\n"
+        f"• 24h Vol: ${vol24:,.0f} | 1h Momentum: {c1h:+.1f}%\n"
+        f"• Security: Mint Auth: {mint_auth} | Freeze Auth: {freeze_auth} | Top 10: {top10:.1f}% | Risk Score: {score}\n\n"
+        f"Instruction: Respond conversationally in 2-3 sentences using the token's real name '{name}' (${symbol}) "
+        f"and verifiable metrics. Never output raw contract addresses."
     )
 
 
