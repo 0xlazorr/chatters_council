@@ -172,14 +172,19 @@ class MSnifferExecutor:
         if wallet_info.get("online") and action == "BUY":
             sol_bal = wallet_info.get("sol_balance", 0.0)
             if sol_bal < amount:
-                wallet_addr = wallet_info.get("wallet", "N/A")
+                raw_wallet = str(wallet_info.get("wallet") or "N/A")
+                wallet_display = (
+                    f"{raw_wallet[:6]}...{raw_wallet[-4:]}"
+                    if len(raw_wallet) >= 10
+                    else raw_wallet
+                )
                 return ExecutionResult(
                     success=False,
                     action=action,
                     mint=mint,
                     amount=amount,
                     message=(
-                        f"Execution halted: Insufficient SOL balance in wallet {wallet_addr[:6]}...{wallet_addr[-4:]} "
+                        f"Execution halted: Insufficient SOL balance in wallet {wallet_display} "
                         f"(Available: {sol_bal:.4f} SOL, Required: {amount:.2f} SOL). "
                         f"Please fund the wallet to execute trades."
                     ),
