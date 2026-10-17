@@ -421,7 +421,26 @@ async def exitmode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         val = args[0].strip().lower()
-        if val in ("hold", "diamond", "moon", "moonbag"):
+        if val in ("runner", "long", "trail", "trailing"):
+            config.DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
+            await update.message.reply_text(
+                f"🚀 <b>Default Exit Strategy Set to LONG RUNNER MODE</b>\n\n"
+                f"• Positions can climb indefinitely to 5x-100x without premature selling.\n"
+                f"• Once in profit (>= +50%), it trails the highest peak price by -{config.TRAILING_STOP_PCT:.0f}% (wider margin for memecoin breathing room).\n"
+                f"• Stop-loss cuts at -{config.STOP_LOSS_PCT:.0f}% to protect initial capital.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif val in ("2x", "double", "auto", "tp", "profit"):
+            config.DEFAULT_EXIT_STRATEGY = "2X_TAKE_PROFIT"
+            await update.message.reply_text(
+                f"🎯 <b>Default Exit Strategy Set to FIXED 2X TAKE-PROFIT (+100%)</b>\n\n"
+                f"• Automatically sells and locks in profit as soon as the token doubles in value (2x return / +100% gain).\n"
+                f"• Stop-loss cuts at -{config.STOP_LOSS_PCT:.0f}% if price drops.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        elif val in ("hold", "diamond", "moon", "moonbag"):
             config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE"
             await update.message.reply_text(
                 "💎 <b>Default Exit Strategy Set to HOLD INDEFINITELY</b>\n\n"
@@ -430,22 +449,21 @@ async def exitmode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode=ParseMode.HTML,
             )
             return
-        elif val in ("auto", "exit", "tp", "profit"):
-            config.DEFAULT_EXIT_STRATEGY = "AUTO_EXIT"
-            await update.message.reply_text(
-                f"🎯 <b>Default Exit Strategy Set to AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)</b>\n\n"
-                f"Positions will automatically exit at +{config.TAKE_PROFIT_PCT:.0f}% profit, trailing stops, or -25% stop-loss.",
-                parse_mode=ParseMode.HTML,
-            )
-            return
 
-    current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)" if config.DEFAULT_EXIT_STRATEGY == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}% Take-Profit)"
+    if config.DEFAULT_EXIT_STRATEGY == "TRAILING_RUNNER":
+        current_strat = f"🚀 LONG RUNNER (Trail peak -{config.TRAILING_STOP_PCT:.0f}%)"
+    elif config.DEFAULT_EXIT_STRATEGY in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
+        current_strat = "🎯 FIXED 2X TAKE-PROFIT (+100.0%)"
+    else:
+        current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)"
+
     text = (
         "🛡️ <b>COUNCIL EXIT STRATEGY CONTROLLER</b>\n"
         "───────────────────────────────\n"
         f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n"
-        f"📈 <b>Take-Profit Target:</b> <code>+{config.TAKE_PROFIT_PCT:.0f}%</code>\n"
-        f"📉 <b>Trailing Stop:</b> <code>{config.TRAILING_STOP_PCT:.0f}%</code> | <b>Stop-Loss:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
+        f"🚀 <b>Long Runner Mode:</b> Rides 5x-100x; trails peak by <code>-{config.TRAILING_STOP_PCT:.0f}%</code>\n"
+        f"🎯 <b>Fixed 2x Mode:</b> Auto-exits and banks profit at <code>+100.0%</code>\n"
+        f"📉 <b>Stop-Loss Cut:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
         "───────────────────────────────\n"
         "<i>Tap a strategy below to switch the default mode for both autonomous and manual trades:</i>"
     )
@@ -1386,13 +1404,17 @@ def build_vault_keyboard() -> InlineKeyboardMarkup:
 def build_exitmode_keyboard() -> InlineKeyboardMarkup:
     """Builds interactive inline keyboard for toggling Council default exit strategy."""
     strat = config.DEFAULT_EXIT_STRATEGY
-    auto_label = f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%) ✅" if strat == "AUTO_EXIT" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
+    runner_label = f"🚀 Long Runner (-{config.TRAILING_STOP_PCT:.0f}%) ✅" if strat == "TRAILING_RUNNER" else f"🚀 Long Runner (-{config.TRAILING_STOP_PCT:.0f}%)"
+    two_x_label = "🎯 Fixed 2x (+100%) ✅" if strat in ("2X_TAKE_PROFIT", "AUTO_EXIT") else "🎯 Fixed 2x (+100%)"
     hold_label = "💎 Hold Indefinite ✅" if strat == "HOLD_INDEFINITE" else "💎 Hold Indefinite"
-    row = [
-        InlineKeyboardButton(auto_label, callback_data="setstrat:a"),
-        InlineKeyboardButton(hold_label, callback_data="setstrat:h"),
+    row1 = [
+        InlineKeyboardButton(runner_label, callback_data="setstrat:runner"),
+        InlineKeyboardButton(two_x_label, callback_data="setstrat:2x"),
     ]
-    return InlineKeyboardMarkup([row])
+    row2 = [
+        InlineKeyboardButton(hold_label, callback_data="setstrat:hold"),
+    ]
+    return InlineKeyboardMarkup([row1, row2])
 
 
 async def invest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1942,15 +1964,28 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("setstrat:"):
         parts = data.split(":")
         if len(parts) >= 2:
-            code = parts[1]
-            config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE" if code == "h" else "AUTO_EXIT"
-            current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)" if config.DEFAULT_EXIT_STRATEGY == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}% Take-Profit)"
+            code = parts[1].lower()
+            if code in ("r", "runner"):
+                config.DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
+            elif code in ("2x", "a", "auto"):
+                config.DEFAULT_EXIT_STRATEGY = "2X_TAKE_PROFIT"
+            else:
+                config.DEFAULT_EXIT_STRATEGY = "HOLD_INDEFINITE"
+
+            if config.DEFAULT_EXIT_STRATEGY == "TRAILING_RUNNER":
+                current_strat = f"🚀 LONG RUNNER (Trail peak -{config.TRAILING_STOP_PCT:.0f}%)"
+            elif config.DEFAULT_EXIT_STRATEGY in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
+                current_strat = "🎯 FIXED 2X TAKE-PROFIT (+100.0%)"
+            else:
+                current_strat = "💎 HOLD INDEFINITELY (Diamond Hands)"
+
             text = (
                 "🛡️ <b>COUNCIL EXIT STRATEGY CONTROLLER</b>\n"
                 "───────────────────────────────\n"
                 f"🎯 <b>Active Default:</b> <code>{current_strat}</code>\n"
-                f"📈 <b>Take-Profit Target:</b> <code>+{config.TAKE_PROFIT_PCT:.0f}%</code>\n"
-                f"📉 <b>Trailing Stop:</b> <code>{config.TRAILING_STOP_PCT:.0f}%</code> | <b>Stop-Loss:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
+                f"🚀 <b>Long Runner Mode:</b> Rides 5x-100x; trails peak by <code>-{config.TRAILING_STOP_PCT:.0f}%</code>\n"
+                f"🎯 <b>Fixed 2x Mode:</b> Auto-exits and banks profit at <code>+100.0%</code>\n"
+                f"📉 <b>Stop-Loss Cut:</b> <code>-{config.STOP_LOSS_PCT:.0f}%</code>\n"
                 "───────────────────────────────\n"
                 "<i>Tap a strategy below to switch the default mode for both autonomous and manual trades:</i>"
             )

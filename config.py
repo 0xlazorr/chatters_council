@@ -204,13 +204,17 @@ SOL_MINT: str = "So11111111111111111111111111111111111111112"
 USDT_SOLANA_MINT: str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
 # Position Exit & Profit-Taking Targets
+# Supported strategies:
+# - "TRAILING_RUNNER": Long runner mode (rides 5x-100x; exits when price retraces 25% from peak)
+# - "2X_TAKE_PROFIT": Fixed 2x mode (automatically takes profit and sells when position reaches 2x / +100% gain)
+# - "HOLD_INDEFINITE": Diamond hands (never auto-sells; manual exit only via /sell)
 DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "TRAILING_RUNNER").strip().upper()
-if DEFAULT_EXIT_STRATEGY not in ("TRAILING_RUNNER", "AUTO_EXIT", "HOLD_INDEFINITE"):
+if DEFAULT_EXIT_STRATEGY not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
     DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
 
-TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "50.0"))  # Threshold where trailing profit lock activates
-STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Hard stop-loss limit
-TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "15.0"))  # Retrace from peak required to exit winner
+TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "100.0"))  # Fixed 2x take-profit (+100.0% gain)
+STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Hard stop-loss limit (-25.0%)
+TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "25.0"))  # Retrace from peak to exit runner (widened to 25% for memecoin breathing room)
 
 # Profit Vault Sweeper (One-way ratchet: sweeps profits to USDT; NEVER converts USDT back to SOL)
 PROFIT_VAULT_ENABLED: bool = os.getenv("PROFIT_VAULT_ENABLED", "true").lower() in ("true", "1", "yes")

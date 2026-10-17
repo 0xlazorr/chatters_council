@@ -94,8 +94,10 @@ class PositionManager:
     ) -> Position:
         """Registers a newly purchased token position with designated exit strategy."""
         strat = exit_strategy.upper() if exit_strategy else config.DEFAULT_EXIT_STRATEGY
-        if strat not in ("TRAILING_RUNNER", "AUTO_EXIT", "HOLD_INDEFINITE"):
+        if strat not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
             strat = "TRAILING_RUNNER"
+        if strat == "AUTO_EXIT":
+            strat = "2X_TAKE_PROFIT"
 
         pos = Position(
             mint=mint,
@@ -130,17 +132,20 @@ class PositionManager:
             return False, f"No open position found for token <code>{mint}</code>"
 
         strat = strategy.upper()
-        if strat not in ("TRAILING_RUNNER", "AUTO_EXIT", "HOLD_INDEFINITE"):
-            return False, "Strategy must be TRAILING_RUNNER, AUTO_EXIT, or HOLD_INDEFINITE"
+        if strat not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
+            return False, "Strategy must be TRAILING_RUNNER, 2X_TAKE_PROFIT, or HOLD_INDEFINITE"
+
+        if strat == "AUTO_EXIT":
+            strat = "2X_TAKE_PROFIT"
 
         pos.exit_strategy = strat
         self._save()
         if strat == "HOLD_INDEFINITE":
             desc = "💎 HOLD INDEFINITELY"
         elif strat == "TRAILING_RUNNER":
-            desc = f"🚀 TRAILING RUNNER (Ride 5x-100x, trail peak after +{config.TAKE_PROFIT_PCT:.0f}%)"
+            desc = f"🚀 LONG RUNNER (Trail peak by -{config.TRAILING_STOP_PCT:.0f}% after +50%)"
         else:
-            desc = f"🎯 FIXED TAKE-PROFIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
+            desc = f"🎯 FIXED 2X TAKE-PROFIT (+100.0% / 2x Return)"
         safe_name = html.escape(pos.name)
         safe_sym = html.escape(pos.symbol)
         return True, f"Updated strategy for <b>{safe_name}</b> (<code>${safe_sym}</code>) to <b>{desc}</b>"
@@ -176,33 +181,34 @@ class PositionManager:
         if pos.exit_strategy == "HOLD_INDEFINITE":
             return False, ""
 
-        # Strategy 1: TRAILING_RUNNER (Default - Lets winners run to 5x-100x; locks in profit once peak pulls back)
+        pnl = pos.pnl_pct
+
+        # Strategy 1: TRAILING_RUNNER (Long Runner Mode: Lets winners run to 5x-100x; locks in profit once peak pulls back 25%)
         if pos.exit_strategy == "TRAILING_RUNNER":
             # 1. Hard Stop-Loss Trigger (default -25% loss limit)
             if pnl <= -config.STOP_LOSS_PCT:
                 return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)"
 
-            # 2. Once in strong profit (>= TAKE_PROFIT_PCT e.g. +50%), trail the peak!
-            if pos.peak_price_usd >= pos.entry_price_usd * (1.0 + config.TAKE_PROFIT_PCT / 100.0):
+            # 2. Once in profit (peak >= entry * 1.50, i.e. +50% or higher), trail peak price!
+            # With TRAILING_STOP_PCT = 25%, it gives plenty of breathing room for memecoin volatility
+            if pos.peak_price_usd >= pos.entry_price_usd * 1.50:
                 drawdown_from_peak = ((pos.peak_price_usd - current_price_usd) / pos.peak_price_usd) * 100.0
                 if drawdown_from_peak >= config.TRAILING_STOP_PCT:
                     return True, f"Trailing Profit Lock Triggered (-{drawdown_from_peak:.1f}% from peak, locked in +{pnl:.1f}% gain)"
 
             return False, ""
 
-        # Strategy 2: FIXED AUTO_EXIT (Strict fixed take-profit target)
-        if pnl >= config.TAKE_PROFIT_PCT:
-            return True, f"Fixed Take-Profit Target Reached (+{pnl:.1f}% gain)"
+        # Strategy 2: 2X_TAKE_PROFIT / AUTO_EXIT (Fixed 2x Mode: Sells once it doubles / reaches +100% gain)
+        if pos.exit_strategy in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
+            # 1. 2X Target Reached (Price doubled or pnl >= 100%)
+            if pnl >= 100.0 or current_price_usd >= pos.entry_price_usd * 2.0:
+                return True, f"2X Take-Profit Target Reached (+{pnl:.1f}% gain / 2x return)"
 
-        # Trailing Stop Trigger (If reached +20% profit, and retraced by TRAILING_STOP_PCT from peak)
-        if pos.peak_price_usd >= pos.entry_price_usd * 1.20:
-            drawdown_from_peak = ((pos.peak_price_usd - current_price_usd) / pos.peak_price_usd) * 100.0
-            if drawdown_from_peak >= config.TRAILING_STOP_PCT:
-                return True, f"Trailing Stop Triggered (-{drawdown_from_peak:.1f}% from peak, locked in +{pnl:.1f}%)"
+            # 2. Hard Stop-Loss Trigger (default -25%)
+            if pnl <= -config.STOP_LOSS_PCT:
+                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)"
 
-        # Hard Stop-Loss Trigger (default -25%)
-        if pnl <= -config.STOP_LOSS_PCT:
-            return True, f"Stop-Loss Triggered ({pnl:.1f}% loss limit)"
+            return False, ""
 
         return False, ""
 
@@ -245,8 +251,12 @@ class PositionManager:
         ]
         for p in open_pos:
             pnl_badge = f"+{p.pnl_pct:.1f}% 🟢" if p.pnl_pct >= 0 else f"{p.pnl_pct:.1f}% 🔴"
-            dex_url = f"https://dexscreener.com/solana/{p.mint}"
-            strat_badge = "💎 HOLD" if p.exit_strategy == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
+            if p.exit_strategy == "HOLD_INDEFINITE":
+                strat_badge = "💎 HOLD"
+            elif p.exit_strategy == "TRAILING_RUNNER":
+                strat_badge = f"🚀 RUNNER (-{config.TRAILING_STOP_PCT:.0f}% peak trail)"
+            else:
+                strat_badge = "🎯 FIXED 2X (+100%)"
             safe_name = html.escape(p.name)
             safe_sym = html.escape(p.symbol)
             lines.append(
