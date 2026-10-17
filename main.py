@@ -2549,6 +2549,11 @@ async def post_init(application: Application):
     # Start dedicated background position exit monitor
     asyncio.create_task(position_exit_watcher_loop(lead_bot=application.bot))
 
+    # Auto-resume persistent Autopilot if previously enabled
+    if autopilot.enabled and config.GROUP_CHAT_ID:
+        logger.info("Resuming persistent Autopilot scanning loop...")
+        await autopilot.start(chat_id=config.GROUP_CHAT_ID, lead_bot=application.bot, council_orchestrator=council)
+
     # Register simplified bot commands menu in Telegram UI (Only 8 clear commands)
     bot_commands = [
         BotCommand("menu", "📱 Master Control Dashboard & 1-Click Buttons"),

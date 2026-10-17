@@ -258,16 +258,18 @@ class AutopilotEngine:
         self.trades_rejected: int = 0
         self.start_timestamp: float = 0.0
         self.scan_interval_seconds: int = 900
+        self.enabled: bool = False
         self._load_config()
 
     def _load_config(self):
-        """Loads saved autopilot scan interval from local storage."""
+        """Loads saved autopilot scan interval and enabled state from local storage."""
         try:
             if os.path.exists(AUTOPILOT_CONFIG_FILE):
                 with open(AUTOPILOT_CONFIG_FILE, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.scan_interval_seconds = int(data.get("scan_interval_seconds", 900))
-                    logger.info(f"Loaded autopilot interval from disk: {self.scan_interval_seconds}s ({format_interval(self.scan_interval_seconds)})")
+                    self.enabled = bool(data.get("enabled", False))
+                    logger.info(f"Loaded autopilot config from disk: {self.scan_interval_seconds}s ({format_interval(self.scan_interval_seconds)}) | enabled: {self.enabled}")
             else:
                 env_val = os.getenv("AUTOPILOT_INTERVAL_SECONDS")
                 if env_val:
@@ -276,11 +278,14 @@ class AutopilotEngine:
             logger.debug(f"Could not load autopilot config file: {e}")
 
     def _save_config(self):
-        """Saves current scan interval to disk for cross-restart persistence."""
+        """Saves current scan interval and enabled state to disk for cross-restart persistence."""
         try:
             os.makedirs(os.path.dirname(AUTOPILOT_CONFIG_FILE), exist_ok=True)
             with open(AUTOPILOT_CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump({"scan_interval_seconds": self.scan_interval_seconds}, f, indent=2)
+                json.dump({
+                    "scan_interval_seconds": self.scan_interval_seconds,
+                    "enabled": self.enabled,
+                }, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save autopilot config: {e}")
 
@@ -331,6 +336,8 @@ class AutopilotEngine:
             self.set_interval(scan_interval)
 
         self.is_running = True
+        self.enabled = True
+        self._save_config()
         self.start_timestamp = time.time()
         self._wake_event.clear()
         self._task = asyncio.create_task(
@@ -355,6 +362,8 @@ class AutopilotEngine:
             return "ℹ️ Autopilot is not currently running."
 
         self.is_running = False
+        self.enabled = False
+        self._save_config()
         self._wake_event.set()
         if self._task and not self._task.done():
             self._task.cancel()
