@@ -75,16 +75,15 @@ class SignalExtractor:
         if re.search(r"\b(sell|dump|exit|liquidate|short)\b", combined, re.IGNORECASE):
             action = "SELL"
 
-        # 3. Extract Amount
+        # 3. Extract Amount (Snaps strictly to allowed investment options)
         amount = config.DEFAULT_TRADE_AMOUNT_SOL
         amt_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:sol|solana)\b", combined, re.IGNORECASE)
         if amt_match:
             try:
                 parsed_amt = float(amt_match.group(1))
-                if 0.01 <= parsed_amt <= 500.0:
-                    amount = parsed_amt
+                amount = config.validate_investment_amount(parsed_amt)
             except ValueError:
-                pass
+                amount = config.DEFAULT_TRADE_AMOUNT_SOL
         elif action == "SELL":
             pct_match = re.search(r"(\d{1,3})\s*%", combined)
             amount = float(pct_match.group(1)) if pct_match else 100.0

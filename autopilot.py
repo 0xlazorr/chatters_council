@@ -95,11 +95,15 @@ class AutopilotEngine:
 
     async def _fetch_trending_solana_mints(self) -> List[Dict[str, str]]:
         """
-        Fetches live breakout Solana tokens from DexScreener's public trending and profiles APIs.
+        Fetches live breakout Solana tokens from DexScreener's public trending and profiles APIs:
+        1. /token-boosts/top/v1 (Top boosted Solana tokens by velocity & community activity)
+        2. /token-boosts/latest/v1 (Latest breakout tokens gaining immediate traction)
+        3. /token-profiles/latest/v1 (Latest verified token profiles launched on Solana)
         Returns a list of dicts: [{"mint": "...", "name": "...", "symbol": "..."}]
         """
         urls = [
             "https://api.dexscreener.com/token-boosts/top/v1",
+            "https://api.dexscreener.com/token-boosts/latest/v1",
             "https://api.dexscreener.com/token-profiles/latest/v1",
         ]
         candidates = []
@@ -129,6 +133,74 @@ class AutopilotEngine:
                 logger.debug(f"Error fetching DexScreener tokens from {url}: {e}")
 
         return candidates
+
+    async def _enrich_candidate(self, mint: str) -> Optional[Dict[str, Any]]:
+        """
+        Enriches a candidate Solana mint with live on-chain market telemetry:
+        - Liquidity USD (verifies candidate meets AUTOPILOT_MIN_LIQUIDITY_USD floor)
+        - FDV / Market Cap
+        - Price USD
+        - 24h Trading Volume
+        - 1h Price Momentum
+        - DEX (Raydium, PumpSwap, Orca, Meteora)
+        Filters out illiquid tokens and honeypots before disturbing the Council.
+        """
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{mint}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ChattersCouncil/2.0"})
+            loop = asyncio.get_running_loop()
+            data = await loop.run_in_executor(None, lambda: self._fetch_url_json(req))
+
+            if not data or not isinstance(data, dict):
+                return None
+
+            pairs = data.get("pairs") or []
+            solana_pairs = [p for p in pairs if p.get("chainId") == "solana"]
+            if not solana_pairs:
+                return None
+
+            # Sort by liquidity USD descending to identify primary liquidity pool
+            solana_pairs.sort(
+                key=lambda p: float((p.get("liquidity") or {}).get("usd") or 0.0),
+                reverse=True,
+            )
+            primary_pair = solana_pairs[0]
+
+            liquidity_usd = float((primary_pair.get("liquidity") or {}).get("usd") or 0.0)
+
+            # Strict Safety Check: Discard tokens below minimum liquidity floor ($5k USD)
+            if liquidity_usd < config.AUTOPILOT_MIN_LIQUIDITY_USD:
+                logger.info(
+                    f"Candidate {mint} discarded: Liquidity ${liquidity_usd:,.2f} is below safety floor "
+                    f"(${config.AUTOPILOT_MIN_LIQUIDITY_USD:,.2f})"
+                )
+                return None
+
+            base_token = primary_pair.get("baseToken") or {}
+            name = base_token.get("name") or "Unknown"
+            symbol = (base_token.get("symbol") or "SOL").upper()
+            dex = (primary_pair.get("dexId") or "Raydium").capitalize()
+            fdv = float(primary_pair.get("fdv") or 0.0)
+            price_usd = float(primary_pair.get("priceUsd") or 0.0)
+            vol_24h = float((primary_pair.get("volume") or {}).get("h24") or 0.0)
+            h1_change = float((primary_pair.get("priceChange") or {}).get("h1") or 0.0)
+            chart_url = primary_pair.get("url") or f"https://dexscreener.com/solana/{mint}"
+
+            return {
+                "mint": mint,
+                "name": name,
+                "symbol": symbol,
+                "dex": dex,
+                "liquidity_usd": liquidity_usd,
+                "fdv": fdv,
+                "price_usd": price_usd,
+                "volume_24h": vol_24h,
+                "price_change_1h": h1_change,
+                "url": chart_url,
+            }
+        except Exception as e:
+            logger.debug(f"Error enriching candidate {mint}: {e}")
+            return None
 
     @staticmethod
     def _fetch_url_json(req: urllib.request.Request) -> Any:
@@ -176,27 +248,53 @@ class AutopilotEngine:
                         break
 
                 # -------------------------------------------------------------
-                # 2. Find Candidates to Evaluate
+                # 2. Find Candidates & Enrich with Live DexScreener Telemetry
                 # -------------------------------------------------------------
-                candidates = await self._fetch_trending_solana_mints()
+                raw_candidates = await self._fetch_trending_solana_mints()
 
-                if not candidates:
-                    logger.debug("No un-evaluated Solana candidates found in this scan. Sleeping...")
+                qualified_target = None
+                for cand in raw_candidates:
+                    mint = cand["mint"]
+                    if mint in self.evaluated_mints:
+                        continue
+                    self.evaluated_mints.add(mint)
+
+                    # Fetch live pair telemetry & enforce $5,000 liquidity floor
+                    enriched = await self._enrich_candidate(mint)
+                    if enriched:
+                        qualified_target = enriched
+                        break
+
+                if not qualified_target:
+                    logger.debug("No qualified Solana breakout candidates met safety criteria in this scan. Sleeping...")
                     await asyncio.sleep(self.scan_interval_seconds)
                     continue
 
-                # Select next candidate
-                target = candidates[0]
-                mint = target["mint"]
-                self.evaluated_mints.add(mint)
+                mint = qualified_target["mint"]
+                name = qualified_target["name"]
+                symbol = qualified_target["symbol"]
+                dex = qualified_target["dex"]
+                liq = qualified_target["liquidity_usd"]
+                fdv = qualified_target["fdv"]
+                price = qualified_target["price_usd"]
+                vol24 = qualified_target["volume_24h"]
+                change1h = qualified_target["price_change_1h"]
+                chart_url = qualified_target["url"]
+                trade_amt = config.DEFAULT_TRADE_AMOUNT_SOL
 
                 announcement = (
-                    f"🤖 <b>[AUTOPILOT SCAN #{self.cycle_count}] CANDIDATE DISCOVERED</b>\n"
+                    f"🤖 <b>[AUTOPILOT SCAN #{self.cycle_count}] QUALIFIED BREAKOUT DISCOVERED</b>\n"
                     f"───────────────────────────────\n"
-                    f"🪙 <b>Target Mint:</b> <code>{mint}</code>\n"
-                    f"📊 <a href='https://dexscreener.com/solana/{mint}'>View DexScreener Chart</a>\n"
-                    f"⚖️ <b>Convening AI Council for Institutional Evaluation...</b>\n"
-                    f"───────────────────────────────"
+                    f"🪙 <b>Token:</b> {html.escape(name)} (<code>${html.escape(symbol)}</code>)\n"
+                    f"🔑 <b>Contract:</b> <code>{mint}</code>\n"
+                    f"🏦 <b>DEX:</b> <code>{dex}</code>\n"
+                    f"💧 <b>Liquidity:</b> <code>${liq:,.0f} USD</code> (Floor: &gt;${config.AUTOPILOT_MIN_LIQUIDITY_USD:,.0f})\n"
+                    f"📊 <b>Market Cap (FDV):</b> <code>${fdv:,.0f} USD</code>\n"
+                    f"💵 <b>Price:</b> <code>${price:.6f} USD</code> | <b>1h:</b> <code>{change1h:+.1f}%</code> | <b>24h Vol:</b> <code>${vol24:,.0f}</code>\n"
+                    f"📈 <a href='{chart_url}'>View Live DexScreener Chart</a>\n"
+                    f"🎯 <b>Planned Allocation:</b> <code>{trade_amt:.2f} SOL</code>\n"
+                    f"───────────────────────────────\n"
+                    f"⚖️ <b>Convening AI Council for Institutional Debate & Vote...</b>"
                 )
                 try:
                     await lead_bot.send_message(
@@ -209,12 +307,15 @@ class AutopilotEngine:
                     logger.error(f"Failed to post candidate announcement: {e}")
 
                 # -------------------------------------------------------------
-                # 3. Convene Council: Debate and Formal Vote
+                # 3. Convene Council: Debate and Formal Vote with Real Market Stats
                 # -------------------------------------------------------------
                 prompt = (
-                    f"Autopilot evaluation for breakout Solana token {mint}. "
+                    f"Institutional council evaluation for {name} (${symbol}) on Solana ({dex}). "
+                    f"Contract Address: {mint}. "
+                    f"Live On-Chain Telemetry: Liquidity = ${liq:,.0f} USD, Market Cap (FDV) = ${fdv:,.0f} USD, "
+                    f"Price = ${price:.6f} USD, 24h Volume = ${vol24:,.0f} USD, 1h Momentum = {change1h:+.1f}%. "
                     f"Evaluate security, liquidity structure, mathematical EV, and breakout probability. "
-                    f"Cast your official vote on whether to execute allocation."
+                    f"Cast your official vote on whether to execute BUY allocation of {trade_amt:.2f} SOL."
                 )
 
                 try:
@@ -242,7 +343,7 @@ class AutopilotEngine:
                     logger.info(f"Consensus passed for {mint}. Dispatching execution to Market Sniffer...")
 
                     exec_res = await MSnifferExecutor.execute_consensus(
-                        prompt=f"BUY {config.DEFAULT_TRADE_AMOUNT_SOL} SOL of {mint}",
+                        prompt=f"BUY {trade_amt:.2f} SOL of {mint}",
                         consensus_text=vote_summary.summary_text,
                         yes_count=vote_summary.yes_count,
                         total_votes=vote_summary.total_votes,
@@ -268,7 +369,7 @@ class AutopilotEngine:
                     try:
                         await lead_bot.send_message(
                             chat_id=chat_id,
-                            text=f"🛑 <b>PROPOSAL REJECTED:</b> Council voted against allocating to <code>{mint}</code>. Autopilot moving to next token.",
+                            text=f"🛑 <b>PROPOSAL REJECTED:</b> Council voted against allocating to <code>{mint}</code>. Autopilot moving to next breakout candidate.",
                             parse_mode=ParseMode.HTML,
                         )
                     except Exception as e:

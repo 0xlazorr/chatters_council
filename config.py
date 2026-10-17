@@ -95,11 +95,31 @@ MSNIFFER_SECRET: str = os.getenv("MSNIFFER_SECRET", os.getenv("ORCHESTRATOR_SECR
 # Telegram Chat ID or Username where MSniffer signals should be broadcast
 MSNIFFER_CHAT_ID: str = os.getenv("MSNIFFER_CHAT_ID", "@Msnifferbot").strip()
 
+# Allowed investment options in SOL (Strict presets to prevent dangerous typos or wild custom amounts)
+ALLOWED_INVESTMENT_OPTIONS: List[float] = [0.05, 0.10, 0.25, 0.50, 1.00]
+
+def validate_investment_amount(val: float) -> float:
+    """
+    Validates and snaps an investment amount to an allowed preset option.
+    Guarantees the system never executes arbitrary unbounded numbers.
+    """
+    try:
+        val_clean = round(float(val), 2)
+        if val_clean in ALLOWED_INVESTMENT_OPTIONS:
+            return val_clean
+        # Snap to closest allowed option
+        return min(ALLOWED_INVESTMENT_OPTIONS, key=lambda x: abs(x - val_clean))
+    except Exception:
+        return 0.25
+
 # Default trade amount in SOL when executing BUY consensus
-DEFAULT_TRADE_AMOUNT_SOL: float = float(os.getenv("DEFAULT_TRADE_AMOUNT_SOL", "0.25"))
+DEFAULT_TRADE_AMOUNT_SOL: float = validate_investment_amount(float(os.getenv("DEFAULT_TRADE_AMOUNT_SOL", "0.25")))
 
 # Default slippage in basis points (300 bps = 3.0%)
 DEFAULT_SLIPPAGE_BPS: int = int(os.getenv("DEFAULT_SLIPPAGE_BPS", "300"))
+
+# Minimum liquidity floor required for autonomous autopilot tokens (USD)
+AUTOPILOT_MIN_LIQUIDITY_USD: float = float(os.getenv("AUTOPILOT_MIN_LIQUIDITY_USD", "5000.0"))
 
 
 # =============================================================================

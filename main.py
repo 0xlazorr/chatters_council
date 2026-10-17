@@ -243,16 +243,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>&lt;CA&gt; -exe</code> - Instantly launches Vote & Execute\n"
         "• <code>&lt;CA&gt; -vot</code> - Instantly launches Formal Vote\n"
         "• <code>&lt;CA&gt; -deb</code> - Instantly launches Debate\n"
-        "• <code>&lt;CA&gt; -a 0.5</code> - Sets custom trade amount to 0.5 SOL\n"
+        "• <code>&lt;CA&gt; -a 0.50</code> - Selects investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n"
         "• <code>&lt;CA&gt; -m ruthless</code> - Overrides mood for this evaluation\n"
-        "<i>💡 Tip: Posting a bare CA with NO flags brings up interactive 1-click buttons!</i>\n\n"
+        "<i>💡 Tip: Posting a bare CA with NO flags brings up interactive 1-click buttons with preset investment options!</i>\n\n"
         "<b>🤖 Autonomous Autopilot Stream Trading:</b>\n"
         "• <code>/auto on</code> - Starts autonomous loop (scans breakout tokens, debates, votes & trades)\n"
         "• <code>/auto off</code> - Halts autonomous loop\n"
         "• <code>/auto status</code> - Live statistics (cycles, tokens evaluated, approvals)\n"
         "<i>🛡️ Safety Guard: Autopilot automatically halts if wallet SOL drops below minimum!</i>\n\n"
-        "<b>💳 Treasury & Wallet:</b>\n"
-        "• <code>/wallet</code> - View Market Sniffer execution wallet pubkey & live SOL balance\n\n"
+        "<b>💳 Treasury, Wallet & Investment Options:</b>\n"
+        "• <code>/wallet</code> - View Market Sniffer execution wallet pubkey & live SOL balance\n"
+        "• <code>/invest [amount]</code> - View or change default investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n\n"
         "<b>🎭 Personality & Moods:</b>\n"
         "• <code>/mood &lt;type&gt;</code> (analytical, skeptical, aggressive, conservative, ruthless, contrarian)\n\n"
         "<b>⚙️ Management & Utility:</b>\n"
@@ -711,6 +712,97 @@ async def dve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await execute_council_session(chat_id=chat_id, prompt=prompt, mode="dve", reply_to_id=update.message.message_id)
 
 
+def build_ca_keyboard(mint: str, selected_amount: Optional[float] = None) -> InlineKeyboardMarkup:
+    """
+    Builds the interactive inline keyboard with explicit preset investment amount options.
+    Prevents arbitrary custom amounts by strictly offering approved SOL tiers.
+    """
+    if selected_amount is None:
+        selected_amount = config.DEFAULT_TRADE_AMOUNT_SOL
+    selected_amount = config.validate_investment_amount(selected_amount)
+
+    # Row 1: Strict preset investment options
+    amt_row = []
+    for opt in config.ALLOWED_INVESTMENT_OPTIONS:
+        label = f"{opt:.2f} SOL ✅" if abs(opt - selected_amount) < 0.001 else f"{opt:.2f} SOL"
+        amt_row.append(InlineKeyboardButton(label, callback_data=f"amt:{mint}:{opt:.2f}"))
+
+    # Row 2: Council execution actions with the chosen investment amount
+    action_row = [
+        InlineKeyboardButton(f"🚀 Full DVE ({selected_amount:.2f} SOL)", callback_data=f"dve:{mint}:{selected_amount:.2f}"),
+        InlineKeyboardButton(f"⚡ Vote & Exe ({selected_amount:.2f} SOL)", callback_data=f"exe:{mint}:{selected_amount:.2f}"),
+    ]
+
+    # Row 3: Deliberation without execution
+    delib_row = [
+        InlineKeyboardButton("🗳️ Vote Only", callback_data=f"vot:{mint}:{selected_amount:.2f}"),
+        InlineKeyboardButton("🎙️ Debate Only", callback_data=f"deb:{mint}:{selected_amount:.2f}"),
+    ]
+
+    # Row 4: Autopilot toggle
+    ap_label = "🛑 Stop Autopilot" if autopilot.is_running else "🤖 Start Autopilot"
+    ap_row = [InlineKeyboardButton(ap_label, callback_data="auto:toggle")]
+
+    return InlineKeyboardMarkup([amt_row, action_row, delib_row, ap_row])
+
+
+def build_invest_keyboard() -> InlineKeyboardMarkup:
+    """Builds the inline keyboard for the /invest command."""
+    current = config.DEFAULT_TRADE_AMOUNT_SOL
+    row = []
+    for opt in config.ALLOWED_INVESTMENT_OPTIONS:
+        label = f"{opt:.2f} SOL ✅" if abs(opt - current) < 0.001 else f"{opt:.2f} SOL"
+        row.append(InlineKeyboardButton(label, callback_data=f"setinv:{opt:.2f}"))
+    return InlineKeyboardMarkup([row])
+
+
+async def invest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles /invest [amount] to configure or view the council's investment preset."""
+    auth, reason = is_authorized_admin(update)
+    if not auth:
+        await update.message.reply_text(f"⛔ {reason}")
+        return
+
+    chat_id = check_and_record_chat_id(update)
+    args = context.args
+
+    if args:
+        try:
+            raw_val = float(args[0].strip().replace("sol", ""))
+            clean_val = round(raw_val, 2)
+            if clean_val not in config.ALLOWED_INVESTMENT_OPTIONS:
+                opts_str = ", ".join(f"{x:.2f} SOL" for x in config.ALLOWED_INVESTMENT_OPTIONS)
+                await update.message.reply_text(
+                    f"⚠️ <b>Invalid Investment Amount!</b>\n\n"
+                    f"Arbitrary custom amounts are disabled for treasury safety.\n"
+                    f"You must select from the approved preset options:\n"
+                    f"<code>{opts_str}</code>",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            config.DEFAULT_TRADE_AMOUNT_SOL = clean_val
+            await update.message.reply_text(
+                f"✅ <b>Default Council Investment Updated:</b> <code>{clean_val:.2f} SOL</code>\n"
+                f"Future consensus-approved trades will allocate <code>{clean_val:.2f} SOL</code>.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        except ValueError:
+            pass
+
+    opts_str = " | ".join(f"{x:.2f} SOL" for x in config.ALLOWED_INVESTMENT_OPTIONS)
+    text = (
+        f"💰 <b>COUNCIL INVESTMENT AMOUNT PRESET</b>\n"
+        f"───────────────────────────────\n"
+        f"🎯 <b>Current Active Setting:</b> <code>{config.DEFAULT_TRADE_AMOUNT_SOL:.2f} SOL</code>\n"
+        f"🛡️ <b>Allowed Options:</b> <code>{opts_str}</code>\n"
+        f"───────────────────────────────\n"
+        f"<i>Tap an option below to set the investment amount for future trades:</i>"
+    )
+    await update.message.reply_text(text, reply_markup=build_invest_keyboard(), parse_mode=ParseMode.HTML)
+
+
 # =============================================================================
 # 5. SMART MESSAGE HANDLER (MANUAL CA POSTINGS WITH FLAGS & INLINE BUTTONS)
 # =============================================================================
@@ -721,7 +813,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     1. Detects Solana CAs, Pump.fun links, DexScreener links, etc.
     2. Checks for flags (-dve, -exe, -vot, -deb, -auto, -a <amt>, -m <mood>)
     3. If flag is present: immediately executes that mode for the CA!
-    4. If no flag is present: replies with interactive 1-click inline buttons!
+    4. If no flag is present: replies with interactive 1-click inline buttons with preset options!
     """
     if not update.message or not update.message.text:
         return
@@ -759,13 +851,16 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     elif re.search(r"(?:^|\s)(?:--?(?:auto|autopilot|loop))\b", text, re.IGNORECASE):
         mode = "auto"
 
-    # Custom amount flag (-a 0.5 or --amount 0.5)
+    # Amount flag (-a 0.5 or --amount 0.5) - strictly snapped to allowed options!
     amt_match = re.search(r"(?:-a|--amount)\s+(\d+(?:\.\d+)?)", text, re.IGNORECASE)
     if amt_match:
         try:
-            amount = float(amt_match.group(1))
+            parsed_amt = float(amt_match.group(1))
+            amount = config.validate_investment_amount(parsed_amt)
         except ValueError:
-            pass
+            amount = config.DEFAULT_TRADE_AMOUNT_SOL
+    else:
+        amount = config.validate_investment_amount(amount)
 
     # Custom mood flag (-m ruthless or --mood ruthless)
     mood_match = re.search(r"(?:-m|--mood)\s+([a-zA-Z]+)", text, re.IGNORECASE)
@@ -796,31 +891,15 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
-    # 6. If NO flag attached (bare CA), present interactive 1-click inline keyboard!
+    # 6. If NO flag attached (bare CA), present interactive 1-click inline keyboard with investment options!
     dex_url = f"https://dexscreener.com/solana/{mint}"
-    keyboard = [
-        [
-            InlineKeyboardButton("🚀 Full DVE Pipeline", callback_data=f"dve:{mint}:{amount}"),
-            InlineKeyboardButton("⚡ Vote & Execute", callback_data=f"exe:{mint}:{amount}"),
-        ],
-        [
-            InlineKeyboardButton("🗳️ Vote Only", callback_data=f"vot:{mint}:{amount}"),
-            InlineKeyboardButton("🎙️ Debate Only", callback_data=f"deb:{mint}:{amount}"),
-        ],
-        [
-            InlineKeyboardButton(
-                "🛑 Stop Autopilot" if autopilot.is_running else "🤖 Start Autopilot",
-                callback_data="auto:toggle",
-            ),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = build_ca_keyboard(mint=mint, selected_amount=amount)
 
     card_text = (
         f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
         f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
-        f"💰 <b>Default Amount:</b> <code>{amount:.2f} SOL</code>\n\n"
-        f"<i>Select an action for the AI Council:</i>"
+        f"💰 <b>Selected Investment:</b> <code>{amount:.2f} SOL</code>\n\n"
+        f"<i>Select an approved investment option above or trigger an action:</i>"
     )
 
     await update.message.reply_text(
@@ -848,6 +927,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     data = query.data or ""
     chat_id = query.message.chat_id if query.message else config.GROUP_CHAT_ID
 
+    # 1. Handle Autopilot Toggle
     if data == "auto:toggle":
         lead_bot = council.broadcaster.get_bot(council.agents_config[0].name) if council else None
         if not lead_bot:
@@ -862,11 +942,66 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.message.reply_text(res_msg, parse_mode=ParseMode.HTML)
         return
 
+    # 2. Handle Investment Option selection on CA card (amt:<mint>:<val>)
+    if data.startswith("amt:"):
+        parts = data.split(":")
+        if len(parts) >= 3:
+            mint = parts[1]
+            try:
+                new_amt = config.validate_investment_amount(float(parts[2]))
+            except ValueError:
+                new_amt = config.DEFAULT_TRADE_AMOUNT_SOL
+
+            new_markup = build_ca_keyboard(mint=mint, selected_amount=new_amt)
+            dex_url = f"https://dexscreener.com/solana/{mint}"
+            updated_text = (
+                f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
+                f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
+                f"💰 <b>Selected Investment:</b> <code>{new_amt:.2f} SOL</code>\n\n"
+                f"<i>Select an approved investment option above or trigger an action:</i>"
+            )
+            try:
+                await query.edit_message_text(
+                    text=updated_text,
+                    reply_markup=new_markup,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
+            except Exception as e:
+                logger.debug(f"Error updating inline keyboard: {e}")
+        return
+
+    # 3. Handle Setting Global Default Investment Option (setinv:<val>)
+    if data.startswith("setinv:"):
+        parts = data.split(":")
+        if len(parts) >= 2:
+            try:
+                new_amt = config.validate_investment_amount(float(parts[1]))
+                config.DEFAULT_TRADE_AMOUNT_SOL = new_amt
+                opts_str = " | ".join(f"{x:.2f} SOL" for x in config.ALLOWED_INVESTMENT_OPTIONS)
+                text = (
+                    f"✅ <b>Default Council Investment Amount Updated!</b>\n\n"
+                    f"💰 <b>Active Setting:</b> <code>{new_amt:.2f} SOL</code>\n"
+                    f"🛡️ <b>Allowed Options:</b> <code>{opts_str}</code>\n"
+                    f"───────────────────────────────\n"
+                    f"All future consensus-approved trades will allocate <code>{new_amt:.2f} SOL</code>."
+                )
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=build_invest_keyboard(),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.debug(f"Error setting default investment: {e}")
+        return
+
+    # 4. Handle Council Action dispatch (dve, exe, vot, deb)
     parts = data.split(":")
     if len(parts) >= 2:
         cmd_type = parts[0]
         mint = parts[1]
-        amount = float(parts[2]) if len(parts) > 2 else config.DEFAULT_TRADE_AMOUNT_SOL
+        raw_amt = float(parts[2]) if len(parts) > 2 else config.DEFAULT_TRADE_AMOUNT_SOL
+        amount = config.validate_investment_amount(raw_amt)
 
         mode_map = {
             "dve": "dve",
@@ -877,7 +1012,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         mode = mode_map.get(cmd_type, "dve")
         prompt = f"BUY {amount:.2f} SOL of token {mint}"
 
-        # Cleanly remove the buttons from the trigger message to prevent double-clicks
+        # Cleanly remove the buttons to prevent accidental double-clicks or re-entrancy
         try:
             await query.edit_message_reply_markup(reply_markup=None)
         except Exception:
@@ -951,6 +1086,7 @@ def main():
     application.add_handler(CommandHandler(["help"], help_command))
     application.add_handler(CommandHandler(["status"], status_command))
     application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
+    application.add_handler(CommandHandler(["invest", "setinvest"], invest_command))
     application.add_handler(CommandHandler(["autopilot", "auto"], autopilot_command))
     application.add_handler(CommandHandler(["mood"], mood_command))
     application.add_handler(CommandHandler(["setnames"], setnames_command))

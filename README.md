@@ -253,39 +253,64 @@ DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263 --auto
 ```
 
 > [!TIP]
-> **Bare CA Posting (Zero Typing)**:
+> **Interactive CA Card & Preset Investment Options**:
 > If you paste a raw CA with **no flags**, the bot will immediately reply with an interactive Telegram message containing **1-click inline buttons**:
-> `[ 🚀 Full DVE Pipeline ]  [ ⚡ Vote & Execute ]`
-> `[ 🗳️ Vote Only ]         [ 🎙️ Debate Only ]`
-> `[ 🤖 Toggle Autopilot ]`
-> Tap any button to launch that operation immediately!
+> ```
+> [ 0.05 SOL ]  [ 0.10 SOL ]  [ 0.25 SOL ✅ ]  [ 0.50 SOL ]  [ 1.00 SOL ]
+> [ 🚀 Full DVE (0.25 SOL) ]  [ ⚡ Vote & Exe (0.25 SOL) ]
+> [ 🗳️ Vote Only ]            [ 🎙️ Debate Only ]
+> [ 🤖 Start Autopilot ]
+> ```
+> - **Preset Investment Options**: Tap any of the top buttons (`0.05`, `0.10`, `0.25`, `0.50`, or `1.00 SOL`) to dynamically adjust the allocation size before triggering. Arbitrary or unapproved custom amounts are strictly prohibited to prevent costly typos.
+> - **Anti-Double-Click Lock**: When an execution button is pressed, the inline buttons are instantly cleared from Telegram to prevent race conditions or duplicate trades.
 
 ---
 
 ### 6. `/auto` (Autonomous Autopilot Stream Trading)
 Operates continuously in the background **without requiring any human input**:
-- Scans live breakout & trending Solana tokens from DexScreener every 90 seconds.
-- Convenes the 5 AI council bots to debate and vote on each candidate.
-- Automatically executes approved trades against Market Sniffer via HTTP webhook (`http://127.0.0.1:8088/trade`).
-- **Automated Treasury Guard**: Periodically checks your execution wallet. If SOL drops below your trade size, Autopilot **automatically halts itself** and posts an alert in the group to protect your account.
+
+#### Where Does Autopilot Pipe CAs From?
+Autopilot continuously aggregates and screens live Solana breakout candidates from 3 real-time DexScreener discovery streams:
+1. **DexScreener Solana Boosts Top** (`/token-boosts/top/v1`): Tokens with the highest real-time boost activity and buyer acceleration.
+2. **DexScreener Solana Boosts Latest** (`/token-boosts/latest/v1`): Brand-new breakout tokens gaining instant traction on Raydium and Pump.fun.
+3. **DexScreener Token Profiles Latest** (`/token-profiles/latest/v1`): Newly verified project profiles launched on Solana.
+
+#### Pre-Council Screening & Telemetry Enrichment
+Before any candidate is presented to the 5 AI bots:
+- Queries `https://api.dexscreener.com/latest/dex/tokens/{mint}` for live on-chain pair metrics.
+- **Strict Liquidity Floor**: Tokens with liquidity under `$5,000 USD` (`AUTOPILOT_MIN_LIQUIDITY_USD`) are **automatically discarded** to filter out illiquid honeypots, dead pairs, and rugpull traps.
+- Feeds actual market data (Token Name, Symbol, DEX, Price, Liquidity USD, FDV, 24h Volume, 1h Momentum) directly into the AutoGen debate prompt so Claude, GPT, DeepSeek, Gemini, and Grok evaluate factual on-chain conditions.
+- If majority consensus passes (≥ 60% YES), automatically dispatches a BUY order to Market Sniffer.
 
 ```text
 /auto on       # Start autonomous loop
 /auto off      # Stop autonomous loop
-/auto status   # View live scan cycles, tokens evaluated, and trade approvals
+/auto status   # View live scan cycles, tokens evaluated, approvals, and executed trades
 ```
 
 ---
 
-### 7. `/wallet` — Execution Treasury & Live SOL Balance
+### 7. `/invest` — Council Investment Presets (Strict Options)
+View or configure the default trade allocation used by the Council:
+```text
+/invest          # View active setting and display 1-tap option buttons
+/invest 0.50     # Switch active preset to 0.50 SOL
+```
+> [!IMPORTANT]
+> **Strict Preset Options**: Only `0.05`, `0.10`, `0.25`, `0.50`, and `1.00` SOL are accepted. Arbitrary wild amounts are strictly rejected or snapped to the nearest allowed option.
+
+---
+
+### 8. `/wallet` — Execution Treasury & Live SOL Balance
 Displays your Market Sniffer execution wallet address, live SOL balance, and Solscan link directly inside Telegram:
 ```text
 /wallet
 ```
+- **Automated Treasury Guard**: Periodically checks your execution wallet via `http://127.0.0.1:8088/health`. If wallet balance drops below your chosen trade amount (e.g. `< 0.255 SOL`), Autopilot **automatically halts itself** and alerts the admin to protect your account.
 
 ---
 
-### 8. `/mood <mood_type>` — Council Mood & Personality Switcher
+### 9. `/mood <mood_type>` — Council Mood & Personality Switcher
 Adjusts the collective perspective and debate style:
 - `/mood analytical`: Balanced, data-driven, objective metrics (default).
 - `/mood skeptical`: Hyper-vigilant, actively seeks out honeypots and rug-pulls.
@@ -296,7 +321,7 @@ Adjusts the collective perspective and debate style:
 
 ---
 
-### 9. Administrative & Utility Commands
+### 10. Administrative & Utility Commands
 - `/status`: View active council lineup, current mood, group ID, and LLM backend.
 - `/setnames`: Triggers `setMyName` to re-sync all 5 bot display names to `{AI}talks`.
 - `/help`: Detailed command cheat sheet.
