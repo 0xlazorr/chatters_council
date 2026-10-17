@@ -246,7 +246,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Paste any Solana CA or DEX link into the group to get a live on-chain briefing card with 1-click execution buttons!\n"
         "• Or use shorthand flags: <code>&lt;CA&gt; -exe</code> or <code>&lt;CA&gt; -dv</code> or <code>&lt;CA&gt; -deb</code>\n\n"
         "<b>🤖 Autonomous Trading & Profit Security:</b>\n"
-        "• <code>/auto on</code> | <code>/auto off</code> - Start/stop background breakout scanner\n"
+        "• <code>/auto</code> - View Autonomous dashboard & interactive frequency buttons\n"
+        "• <code>/auto on [time]</code> - Activate autonomous scanner (e.g. <code>/auto on 15m</code>, <code>/auto on 1h</code>, <code>/auto on 1w</code>)\n"
+        "• <code>/auto &lt;time&gt;</code> - Switch scan frequency (e.g. <code>/auto 1m</code>, <code>/auto 15m</code>, <code>/auto 30m</code>, <code>/auto 1h</code>, <code>/auto 1w</code>)\n"
+        "• <code>/auto off</code> - Halt autonomous scanner\n"
         "• <code>/positions</code> - View open token positions & live performance\n"
         "• <code>/sell &lt;CA&gt;</code> - Manually exit a token position\n"
         "• <code>/vault</code> - View profit vault (sweeps $25 profit to USDT so profits are never burned)\n"
@@ -492,7 +495,14 @@ async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def autopilot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /autopilot [on|off|status] (or /auto)."""
+    """
+    Manages autonomous background loop and customizable scan frequency:
+    - /auto : View dashboard + 1-click frequency selector buttons
+    - /auto on [time] : Start autonomous loop (e.g. /auto on 15m, /auto on 1h, /auto on 1w)
+    - /auto off : Stop autonomous loop
+    - /auto <time> : Update scan frequency (e.g. /auto 1m, 15m, 30m, 1h, 6h, 1d, 1w)
+    - /auto interval <time> / /auto freq <time> : Update scan frequency
+    """
     auth, reason = is_authorized_admin(update)
     if not auth:
         await update.message.reply_text(f"⛔ {reason}")
@@ -500,43 +510,91 @@ async def autopilot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = check_and_record_chat_id(update)
     args = context.args or []
-    subcmd = args[0].strip().lower() if args else "status"
 
     lead_bot = council.broadcaster.get_bot(council.agents_config[0].name) if council else None
     if not lead_bot:
         await update.message.reply_text("❌ Council Orchestrator is not ready.")
         return
 
-    if subcmd in ("on", "start", "run"):
-        success, msg = await autopilot.start(chat_id=chat_id, lead_bot=lead_bot, council_orchestrator=council)
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-    elif subcmd in ("off", "stop", "halt"):
-        msg = await autopilot.stop()
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-    else:
-        # Status
+    if not args:
         stats = autopilot.get_status()
-        st_badge = "🟢 RUNNING (Scanning & Evaluating)" if stats["is_running"] else "⚪ STOPPED (Idle)"
         wallet_info = await MSnifferExecutor.get_wallet_status()
         sol_bal = wallet_info.get("sol_balance", 0.0)
+        dashboard = format_autopilot_dashboard(stats, sol_bal)
+        await update.message.reply_text(
+            dashboard,
+            reply_markup=build_autopilot_keyboard(stats["scan_interval"], stats["is_running"]),
+            parse_mode=ParseMode.HTML,
+        )
+        return
 
-        lines = [
-            "🤖 <b>AI COUNCIL AUTOPILOT STATUS</b>",
-            "───────────────────────────────",
-            f"⚡ <b>State:</b> {st_badge}",
-            f"⏱️ <b>Scan Interval:</b> <code>{stats['scan_interval']}s</code>",
-            f"🔄 <b>Cycles Completed:</b> <code>{stats['cycles']}</code>",
-            f"🔍 <b>Tokens Evaluated:</b> <code>{stats['evaluated_count']}</code>",
-            f"✅ <b>Approved:</b> <code>{stats['approved']}</code>",
-            f"❌ <b>Rejected:</b> <code>{stats['rejected']}</code>",
-            f"🚀 <b>Trades Dispatched:</b> <code>{stats['executed']}</code>",
-            f"💰 <b>Wallet SOL:</b> <code>{sol_bal:.4f} SOL</code>",
-            "───────────────────────────────",
-            "<b>Controls:</b>",
-            "• <code>/auto on</code> - Start autonomous loop",
-            "• <code>/auto off</code> - Halt autonomous loop",
-        ]
-        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    first_arg = args[0].strip().lower()
+
+    if first_arg in ("on", "start", "run"):
+        requested_interval = None
+        if len(args) > 1:
+            raw_time = " ".join(args[1:])
+            parsed_sec = autopilot.parse_duration_string(raw_time)
+            if parsed_sec:
+                autopilot.set_interval(parsed_sec)
+                requested_interval = parsed_sec
+
+        success, msg = await autopilot.start(
+            chat_id=chat_id,
+            lead_bot=lead_bot,
+            council_orchestrator=council,
+            scan_interval=requested_interval,
+        )
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return
+
+    elif first_arg in ("off", "stop", "halt"):
+        msg = await autopilot.stop()
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return
+
+    elif first_arg in ("freq", "interval", "every", "time"):
+        if len(args) < 2:
+            curr_freq = autopilot.format_interval(autopilot.scan_interval_seconds)
+            await update.message.reply_text(
+                f"⏱️ <b>Current Scan Frequency:</b> <code>Every {curr_freq}</code>\n\n"
+                f"Usage: <code>/auto interval &lt;time&gt;</code>\n"
+                f"Examples: <code>1m</code>, <code>15m</code>, <code>30m</code>, <code>1h</code>, <code>6h</code>, <code>1d</code>, <code>1w</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        time_str = " ".join(args[1:])
+        sec = autopilot.parse_duration_string(time_str)
+        if not sec:
+            await update.message.reply_text(
+                f"⚠️ Unrecognized time duration '{time_str}'.\n"
+                f"Examples: <code>1m</code>, <code>15m</code>, <code>30m</code>, <code>1h</code>, <code>6h</code>, <code>24h</code>, <code>1w</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+        success, msg = autopilot.set_interval(sec)
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return
+
+    else:
+        # Check if argument is a duration string (e.g. /auto 15m, /auto 1h, /auto 1 week)
+        full_time_str = " ".join(args)
+        sec = autopilot.parse_duration_string(full_time_str)
+        if sec:
+            success, msg = autopilot.set_interval(sec)
+            await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+            return
+
+        # Fallback to dashboard with note
+        stats = autopilot.get_status()
+        wallet_info = await MSnifferExecutor.get_wallet_status()
+        sol_bal = wallet_info.get("sol_balance", 0.0)
+        dashboard = format_autopilot_dashboard(stats, sol_bal)
+        await update.message.reply_text(
+            dashboard,
+            reply_markup=build_autopilot_keyboard(stats["scan_interval"], stats["is_running"]),
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def mood_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1062,6 +1120,60 @@ async def dve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await execute_council_session(chat_id=chat_id, prompt=prompt, mode="dve", reply_to_id=update.message.message_id)
 
 
+def build_autopilot_keyboard(current_interval: int, is_running: bool) -> InlineKeyboardMarkup:
+    """Builds interactive inline keyboard for choosing scan frequency and starting/stopping autopilot."""
+    def lbl(sec: int, name: str) -> str:
+        return f"{name} ✅" if current_interval == sec else name
+
+    row1 = [
+        InlineKeyboardButton(lbl(60, "⏱️ 1 Min"), callback_data="setfreq:60"),
+        InlineKeyboardButton(lbl(900, "⏱️ 15 Min"), callback_data="setfreq:900"),
+        InlineKeyboardButton(lbl(1800, "⏱️ 30 Min"), callback_data="setfreq:1800"),
+    ]
+    row2 = [
+        InlineKeyboardButton(lbl(3600, "⏱️ 1 Hour"), callback_data="setfreq:3600"),
+        InlineKeyboardButton(lbl(21600, "⏱️ 6 Hours"), callback_data="setfreq:21600"),
+        InlineKeyboardButton(lbl(86400, "⏱️ 24 Hours"), callback_data="setfreq:86400"),
+    ]
+    row3 = [
+        InlineKeyboardButton(lbl(604800, "⏱️ 1 Week"), callback_data="setfreq:604800"),
+        InlineKeyboardButton("🔄 Refresh Status", callback_data="auto:refresh"),
+    ]
+    toggle_label = "🛑 Stop Autopilot" if is_running else "🟢 Start Autopilot"
+    row4 = [
+        InlineKeyboardButton(toggle_label, callback_data="auto:toggle"),
+    ]
+    return InlineKeyboardMarkup([row1, row2, row3, row4])
+
+
+def format_autopilot_dashboard(stats: Dict[str, Any], wallet_sol: float) -> str:
+    """Formats the comprehensive autonomous trading dashboard."""
+    st_badge = "🟢 ACTIVE (Scanning & Screening)" if stats["is_running"] else "⚪ STOPPED (Idle)"
+    freq_desc = stats.get("formatted_interval") or autopilot.format_interval(stats["scan_interval"])
+
+    return (
+        f"🤖 <b>AI COUNCIL AUTONOMOUS TRADING ENGINE</b>\n"
+        f"───────────────────────────────\n"
+        f"⚡ <b>Engine Status:</b> {st_badge}\n"
+        f"⏱️ <b>Scan Frequency:</b> <code>Every {freq_desc}</code>\n"
+        f"🔄 <b>Cycles Run:</b> <code>{stats['cycles']}</code>\n"
+        f"🔍 <b>Breakouts Evaluated:</b> <code>{stats['evaluated_count']}</code>\n"
+        f"✅ <b>Approved by Consensus:</b> <code>{stats['approved']}</code>\n"
+        f"❌ <b>Rejected by Consensus:</b> <code>{stats['rejected']}</code>\n"
+        f"🚀 <b>Trades Dispatched:</b> <code>{stats['executed']}</code>\n"
+        f"📈 <b>Open Positions:</b> <code>{stats['open_positions_count']}</code>\n"
+        f"🏦 <b>Profit Vault Harvested:</b> <code>${stats['total_usdt_vaulted']:.2f} USDT</code>\n"
+        f"💰 <b>Wallet Balance:</b> <code>{wallet_sol:.4f} SOL</code>\n"
+        f"───────────────────────────────\n"
+        f"<b>Frequency Selection:</b>\n"
+        f"• Tap a preset button below to switch frequency instantly.\n"
+        f"• Or type <code>/auto &lt;time&gt;</code> (e.g. <code>/auto 1m</code>, <code>/auto 15m</code>, <code>/auto 30m</code>, <code>/auto 1h</code>, <code>/auto 1w</code>).\n\n"
+        f"<b>Controls:</b>\n"
+        f"• <code>/auto on [time]</code> - Activate autonomous background engine\n"
+        f"• <code>/auto off</code> - Halt autonomous engine"
+    )
+
+
 def build_ca_keyboard(
     mint: str,
     selected_amount: Optional[float] = None,
@@ -1344,7 +1456,41 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     data = query.data or ""
     chat_id = query.message.chat_id if query.message else config.GROUP_CHAT_ID
 
-    # 1. Handle Autopilot Toggle
+    # 1. Handle Autopilot Frequency, Refresh, and Toggle
+    if data.startswith("setfreq:"):
+        parts = data.split(":")
+        if len(parts) >= 2:
+            try:
+                sec = int(parts[1])
+                autopilot.set_interval(sec)
+                stats = autopilot.get_status()
+                wallet_info = await MSnifferExecutor.get_wallet_status()
+                sol_bal = wallet_info.get("sol_balance", 0.0)
+                dashboard = format_autopilot_dashboard(stats, sol_bal)
+                await query.edit_message_text(
+                    text=dashboard,
+                    reply_markup=build_autopilot_keyboard(stats["scan_interval"], stats["is_running"]),
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception as e:
+                logger.debug(f"Error updating autopilot frequency: {e}")
+        return
+
+    if data == "auto:refresh":
+        stats = autopilot.get_status()
+        wallet_info = await MSnifferExecutor.get_wallet_status()
+        sol_bal = wallet_info.get("sol_balance", 0.0)
+        dashboard = format_autopilot_dashboard(stats, sol_bal)
+        try:
+            await query.edit_message_text(
+                text=dashboard,
+                reply_markup=build_autopilot_keyboard(stats["scan_interval"], stats["is_running"]),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        return
+
     if data == "auto:toggle":
         lead_bot = council.broadcaster.get_bot(council.agents_config[0].name) if council else None
         if not lead_bot:
@@ -1353,9 +1499,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         if autopilot.is_running:
             res_msg = await autopilot.stop()
-            await query.message.reply_text(res_msg, parse_mode=ParseMode.HTML)
         else:
             success, res_msg = await autopilot.start(chat_id=chat_id, lead_bot=lead_bot, council_orchestrator=council)
+
+        stats = autopilot.get_status()
+        wallet_info = await MSnifferExecutor.get_wallet_status()
+        sol_bal = wallet_info.get("sol_balance", 0.0)
+        dashboard = format_autopilot_dashboard(stats, sol_bal)
+        try:
+            await query.edit_message_text(
+                text=dashboard,
+                reply_markup=build_autopilot_keyboard(stats["scan_interval"], stats["is_running"]),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
             await query.message.reply_text(res_msg, parse_mode=ParseMode.HTML)
         return
 
@@ -1573,7 +1730,7 @@ async def post_init(application: Application):
         BotCommand("vot", "Debate & Vote on any question or proposition"),
         BotCommand("exe", "Vote & Execute trade on Solana (Silent mode)"),
         BotCommand("dve", "Full Pipeline: Debate ➔ Vote ➔ Execute on Solana"),
-        BotCommand("auto", "Autonomous stream trading (on / off / status)"),
+        BotCommand("auto", "Autonomous trading & frequency (/auto 15m, 1h, 1w)"),
         BotCommand("positions", "View open token positions & live performance"),
         BotCommand("sell", "Manually sell token position (/sell <CA>)"),
         BotCommand("vault", "Profit Vault status & customizable threshold"),
@@ -1637,7 +1794,7 @@ def main():
     application.add_handler(CommandHandler(["tp", "takeprofit"], tp_command))
     application.add_handler(CommandHandler(["vault", "profits"], vault_command))
     application.add_handler(CommandHandler(["sell"], sell_command))
-    application.add_handler(CommandHandler(["autopilot", "auto"], autopilot_command))
+    application.add_handler(CommandHandler(["autopilot", "auto", "interval", "freq"], autopilot_command))
     application.add_handler(CommandHandler(["mood"], mood_command))
     application.add_handler(CommandHandler(["setnames"], setnames_command))
     application.add_handler(CommandHandler(["cancel", "stop"], cancel_command))
