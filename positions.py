@@ -68,6 +68,8 @@ class PositionManager:
                 for item in data:
                     filtered = {k: v for k, v in item.items() if k in valid_keys}
                     pos = Position(**filtered)
+                    if pos.exit_strategy in ("DUAL_SPLIT", "SPLIT", "MOONBAG", "MOONBAG_SPLIT"):
+                        pos.exit_strategy = "TRAILING_RUNNER"
                     self.positions[pos.mint] = pos
             logger.info(f"Loaded {len(self.positions)} positions from {self.filepath}")
         except Exception as e:
@@ -202,27 +204,6 @@ class PositionManager:
 
         pnl = pos.pnl_pct
 
-        # Strategy 0: DUAL_SPLIT (⚡ Scalp 50% for profit + 💎 Hold 50% as Forever Moonbag)
-        if pos.exit_strategy in ("DUAL_SPLIT", "SPLIT", "MOONBAG_SPLIT"):
-            if not pos.scalp_sold:
-                # 1. Scalp Profit Target: Sells 50% of bag at +50% or +100% gain!
-                # Default is +50.0% gain: recovers full original SOL capital + 25% profit, making moonbag 100% risk-free!
-                if pnl >= 50.0 or current_price_usd >= pos.entry_price_usd * 1.50:
-                    return (
-                        True,
-                        f"⚡ Scalp Target Hit (+{pnl:.1f}%). Sold 50% bag to bank profit & secure SOL. Remaining 50% permanently held as FREE MOONBAG! 💎🚀",
-                        50.0,
-                    )
-
-                # 2. Capital Protection Stop-Loss before scalp is banked (-25%)
-                if pnl <= -config.STOP_LOSS_PCT:
-                    return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)", 100.0
-
-                return False, "", 0.0
-            else:
-                # Scalp already banked! The remaining 50% is a diamond hands moonbag held indefinitely!
-                return False, "", 0.0
-
         # Strategy 1: TRAILING_RUNNER (Smart Runner: -20% Stop-Loss -> Breakeven at +30% -> Uncapped 25% peak trail for 10x-100x runs)
         if pos.exit_strategy == "TRAILING_RUNNER":
             peak_pnl = round(((pos.peak_price_usd - pos.entry_price_usd) / pos.entry_price_usd) * 100.0, 1) if pos.entry_price_usd > 0 else 0.0
@@ -272,36 +253,6 @@ class PositionManager:
             return False, "", 0.0
 
         return False, "", 0.0
-
-    def record_partial_exit(
-        self,
-        mint: str,
-        sold_pct: float,
-        exit_price_usd: float,
-        exit_reason: str,
-        exit_tx_hash: str = "",
-    ) -> Optional[Position]:
-        """
-        Records a partial exit (e.g. 50% scalp sale in DUAL_SPLIT mode).
-        Locks in realized gains for the scalp portion, updates remaining position size,
-        and converts the remaining bag into a permanent HOLD_INDEFINITE moonbag!
-        """
-        pos = self.positions.get(mint)
-        if not pos or pos.status != "OPEN":
-            return None
-
-        pos.scalp_sold = True
-        pos.moonbag_retained = True
-        pos.exit_reason = exit_reason
-        pos.exit_tx_hash = exit_tx_hash
-        pos.amount_sol = round(pos.amount_sol * (1.0 - sold_pct / 100.0), 4)
-        pos.exit_strategy = "HOLD_INDEFINITE"
-        self._save()
-        logger.info(
-            f"💎 DUAL_SPLIT executed for {pos.symbol}: Sold {sold_pct:.0f}% at ${exit_price_usd:.6f}. "
-            f"Remaining {100.0 - sold_pct:.0f}% permanently converted to FREE MOONBAG held indefinitely!"
-        )
-        return pos
 
     def close_position(
         self,

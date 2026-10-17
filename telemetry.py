@@ -10,6 +10,7 @@ about tokens using their actual NAME and TICKER, grounded in verifiable data.
 import asyncio
 import json
 import logging
+import re
 import time
 import urllib.request
 import urllib.error
@@ -25,7 +26,9 @@ async def search_solana_token_mint(query: str) -> Optional[str]:
     Returns the verified mint address of the highest-liquidity Solana pair.
     """
     clean_q = query.strip().replace("$", "").upper()
-    if not clean_q or len(clean_q) < 2:
+    if not clean_q or len(clean_q) < 2 or len(clean_q) > 15:
+        return None
+    if not re.match(r"^[A-Z0-9_\-\.]{2,15}$", clean_q):
         return None
 
     loop = asyncio.get_running_loop()
@@ -72,6 +75,10 @@ async def fetch_token_dossier(identifier: str) -> Optional[Dict[str, Any]]:
         clean_mint = resolved_mint
     else:
         clean_mint = clean_id
+
+    if not re.match(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$", clean_mint):
+        logger.debug(f"Invalid Solana mint address format: '{clean_mint}'")
+        return None
 
     loop = asyncio.get_running_loop()
 

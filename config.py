@@ -199,42 +199,17 @@ def validate_investment_amount(val: float) -> float:
 # Default trade amount in SOL when executing BUY consensus
 DEFAULT_TRADE_AMOUNT_SOL: float = validate_investment_amount(float(os.getenv("DEFAULT_TRADE_AMOUNT_SOL", "0.25")))
 
-# Default slippage in basis points (300 bps = 3.0%)
-DEFAULT_SLIPPAGE_BPS: int = int(os.getenv("DEFAULT_SLIPPAGE_BPS", "300"))
+# Slippage bounds protection: clamp between 50 bps (0.5%) and 1500 bps (15.0%)
+# Prevents MEV sandwich attacks and dangerous execution slippage
+_raw_slippage = int(os.getenv("DEFAULT_SLIPPAGE_BPS", "300"))
+DEFAULT_SLIPPAGE_BPS: int = max(50, min(1500, _raw_slippage))
 
 # Well-known mints on Solana
 SOL_MINT: str = "So11111111111111111111111111111111111111112"
 USDT_SOLANA_MINT: str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
-# Secondary Moonbag / Cold Storage Wallet Address (Generational bags held indefinitely)
-MOONBAG_WALLET_ADDRESS: str = os.getenv("MOONBAG_WALLET_ADDRESS", "").strip()
-MOONBAG_WALLET_FILE: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "moonbag_wallet.json")
-
-def get_moonbag_wallet() -> str:
-    """Returns the configured cold storage moonbag vault wallet address."""
-    if os.path.exists(MOONBAG_WALLET_FILE):
-        try:
-            with open(MOONBAG_WALLET_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                addr = data.get("address", "").strip()
-                if addr:
-                    return addr
-        except Exception:
-            pass
-    return MOONBAG_WALLET_ADDRESS
-
-def set_moonbag_wallet(address: str) -> bool:
-    """Persists a new cold storage moonbag vault wallet address to disk."""
-    global MOONBAG_WALLET_ADDRESS
-    try:
-        os.makedirs(os.path.dirname(MOONBAG_WALLET_FILE), exist_ok=True)
-        with open(MOONBAG_WALLET_FILE, "w", encoding="utf-8") as f:
-            json.dump({"address": address.strip()}, f, indent=2)
-        MOONBAG_WALLET_ADDRESS = address.strip()
-        return True
-    except Exception as e:
-        logger.error(f"Failed to save moonbag wallet: {e}")
-        return False
+# Risk Guardrails: Maximum simultaneous open positions to prevent wallet over-exposure
+MAX_OPEN_POSITIONS: int = max(1, min(20, int(os.getenv("MAX_OPEN_POSITIONS", "5"))))
 
 # Position Exit & Profit-Taking Targets
 # Supported strategies:

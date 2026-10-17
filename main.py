@@ -415,57 +415,6 @@ async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
-async def setmoonbag_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /setmoonbag <solana_address> to configure the Cold Moonbag Vault."""
-    auth, reason = is_authorized_admin(update)
-    if not auth:
-        await update.message.reply_text(f"⛔ {reason}")
-        return
-
-    chat_id = check_and_record_chat_id(update)
-    args = context.args or []
-    if not args:
-        current_vault = config.get_moonbag_wallet()
-        vault_display = f"<code>{current_vault}</code>" if current_vault else "<i>Not Configured</i>"
-        solscan_link = f"\n🔗 <a href='https://solscan.io/account/{current_vault}'>View Cold Vault on Solscan</a>" if current_vault else ""
-        await update.message.reply_text(
-            f"💎 <b>COLD MOONBAG VAULT CONFIGURATION</b>\n"
-            f"───────────────────────────────\n"
-            f"📍 <b>Current Cold Vault:</b> {vault_display}{solscan_link}\n\n"
-            f"<b>How It Works:</b>\n"
-            f"• In <code>DUAL_SPLIT</code> mode, once a token gains +50%, the bot sells 50% to recover initial SOL + profit.\n"
-            f"• The remaining 50% is retained as a permanent moonbag mapped to your cold vault.\n"
-            f"• The bot holds <b>ZERO private keys</b> to this address, so your long runners can NEVER be hacked or drained.\n\n"
-            f"<b>To configure or update vault address:</b>\n"
-            f"<code>/setmoonbag &lt;your_solana_address&gt;</code>",
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-        return
-
-    target_addr = args[0].strip()
-    if len(target_addr) < 32 or len(target_addr) > 44 or not re.match(r"^[1-9A-HJ-NP-Za-km-z]+$", target_addr):
-        await update.message.reply_text("❌ <b>Invalid Solana Address:</b> Please provide a valid 32-44 character base58 Solana address.", parse_mode=ParseMode.HTML)
-        return
-
-    ok = config.set_moonbag_wallet(target_addr)
-    if ok:
-        await update.message.reply_text(
-            f"💎 <b>COLD MOONBAG VAULT CONFIGURED SUCCESSFULLY!</b>\n"
-            f"───────────────────────────────\n"
-            f"📍 <b>Cold Vault Address:</b> <code>{target_addr}</code>\n"
-            f"🔗 <a href='https://solscan.io/account/{target_addr}'>View Address on Solscan</a>\n\n"
-            f"🛡️ <b>Security Guarantee:</b>\n"
-            f"• This address is saved as your designated cold storage for diamond-hands moonbags.\n"
-            f"• The bot operates with <b>zero access to your private key</b>.\n"
-            f"• Generational runners (50% tranches) are permanently tracked here.",
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    else:
-        await update.message.reply_text("❌ Failed to persist moonbag vault address to disk.")
-
-
 async def security_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays comprehensive security audit, hardening layers, and vulnerability report."""
     chat_id = check_and_record_chat_id(update)
@@ -1099,7 +1048,14 @@ async def _handle_post_execution(
             tx_hash=exec_res.tx_hash or "",
             exit_strategy=strat,
         )
-        strat_badge = "💎 HOLD INDEFINITELY" if pos.exit_strategy == "HOLD_INDEFINITE" else f"🎯 AUTO-EXIT (+{config.TAKE_PROFIT_PCT:.0f}%)"
+        if pos.exit_strategy == "HOLD_INDEFINITE":
+            strat_badge = "💎 DIAMOND HOLD"
+        elif pos.exit_strategy == "TRAILING_RUNNER":
+            strat_badge = f"🚀 SMART RUNNER (-{config.STOP_LOSS_PCT:.0f}% SL / Trail)"
+        elif pos.exit_strategy in ("50PCT_TAKE_PROFIT", "SCALP_50"):
+            strat_badge = "⚡ 50% SCALP (+50.0%)"
+        else:
+            strat_badge = "🎯 FIXED 2X (+100.0%)"
         logger.info(f"📈 Position registered: {tok_sym} ({mint}) at ${price:.6f} | Strategy: {strat_badge}")
 
     elif action == "SELL":
@@ -2057,13 +2013,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if not query:
         return
 
-    await query.answer()
-
     # Verify authorization
     user = update.effective_user
     if config.ADMIN_USER_IDS and user and user.id not in config.ADMIN_USER_IDS:
-        await query.message.reply_text("⛔ Unauthorized: Only configured council admins can trigger actions.")
+        await query.answer("⛔ Unauthorized: Only configured council admins can trigger actions.", show_alert=True)
         return
+
+    await query.answer()
 
     data = query.data or ""
     chat_id = query.message.chat_id if query.message else config.GROUP_CHAT_ID
@@ -2658,60 +2614,36 @@ async def position_exit_watcher_loop(lead_bot: Bot):
 
                 should_exit, reason, sell_pct = position_manager.check_exit_triggers(pos.mint, curr_price)
                 if should_exit:
-                    logger.info(f"🎯 Dedicated watcher triggered exit for {pos.symbol} ({pos.mint}): {reason} (Sell {sell_pct:.0f}%)")
-                    prompt_str = f"SELL {sell_pct:.0f}% of {pos.mint}" if sell_pct < 100.0 else f"SELL 100% of {pos.mint}"
+                    logger.info(f"🎯 Dedicated watcher triggered exit for {pos.symbol} ({pos.mint}): {reason}")
+                    prompt_str = f"SELL 100% of {pos.mint}"
                     exit_res = await MSnifferExecutor.execute_consensus(
                         prompt=prompt_str,
-                        consensus_text=f"Council Automated Exit ({sell_pct:.0f}%): {reason}",
+                        consensus_text=f"Council Automated Exit: {reason}",
                         yes_count=5,
                         total_votes=5,
                         broadcaster_bot=lead_bot,
                         reply_to_chat_id=target_chat_id,
                     )
                     if exit_res.success:
-                        if sell_pct < 100.0:
-                            position_manager.record_partial_exit(
-                                mint=pos.mint,
-                                sold_pct=sell_pct,
-                                exit_price_usd=curr_price,
-                                exit_reason=reason,
-                                exit_tx_hash=exit_res.tx_hash or "",
-                            )
-                            pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
-                            solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exit_res.tx_hash}'>View Solana Transaction</a>" if exit_res.tx_hash else ""
-                            exit_msg = (
-                                f"⚡ <b>SCALP PROFIT BANKED + MOONBAG ACTIVE: {html.escape(pos.name)}</b>\n"
-                                f"───────────────────────────────\n"
-                                f"🪙 <b>Token:</b> {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)\n"
-                                f"🎯 <b>Action:</b> Sold 50% to bank profit & fully recover original SOL capital!\n"
-                                f"💎 <b>Moonbag Status:</b> Remaining 50% permanently held as <b>DIAMOND HANDS MOONBAG</b> for generational run!\n"
-                                f"📉 <b>Exit Trigger:</b> <code>{reason}</code>\n"
-                                f"💵 <b>Entry Price:</b> <code>${pos.entry_price_usd:.6f}</code> | <b>Exit:</b> <code>${curr_price:.6f}</code>\n"
-                                f"📊 <b>Scalp Performance:</b> <b>{pnl_badge}</b>\n"
-                                f"🛡️ <i>Initial capital safe. You cannot lose on this coin anymore.</i>"
-                                f"{solscan_link}\n"
-                                f"───────────────────────────────"
-                            )
-                        else:
-                            position_manager.close_position(
-                                mint=pos.mint,
-                                exit_price_usd=curr_price,
-                                exit_reason=reason,
-                                exit_tx_hash=exit_res.tx_hash or "",
-                            )
-                            pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
-                            solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exit_res.tx_hash}'>View Solana Transaction</a>" if exit_res.tx_hash else ""
-                            exit_msg = (
-                                f"🎯 <b>COUNCIL POSITION EXIT EXECUTED: SOLD {html.escape(pos.name)}</b>\n"
-                                f"───────────────────────────────\n"
-                                f"🪙 <b>Token:</b> {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)\n"
-                                f"📉 <b>Exit Trigger:</b> <code>{reason}</code>\n"
-                                f"💵 <b>Entry Price:</b> <code>${pos.entry_price_usd:.6f}</code> | <b>Exit:</b> <code>${curr_price:.6f}</code>\n"
-                                f"📊 <b>Realized Performance:</b> <b>{pnl_badge}</b>\n"
-                                f"⚡ <i>Proceeds returned to wallet for future trading & profit vault.</i>"
-                                f"{solscan_link}\n"
-                                f"───────────────────────────────"
-                            )
+                        position_manager.close_position(
+                            mint=pos.mint,
+                            exit_price_usd=curr_price,
+                            exit_reason=reason,
+                            exit_tx_hash=exit_res.tx_hash or "",
+                        )
+                        pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
+                        solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exit_res.tx_hash}'>View Solana Transaction</a>" if exit_res.tx_hash else ""
+                        exit_msg = (
+                            f"🎯 <b>COUNCIL POSITION EXIT EXECUTED: SOLD {html.escape(pos.name)}</b>\n"
+                            f"───────────────────────────────\n"
+                            f"🪙 <b>Token:</b> {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)\n"
+                            f"📉 <b>Exit Trigger:</b> <code>{reason}</code>\n"
+                            f"💵 <b>Entry Price:</b> <code>${pos.entry_price_usd:.6f}</code> | <b>Exit:</b> <code>${curr_price:.6f}</code>\n"
+                            f"📊 <b>Realized Performance:</b> <b>{pnl_badge}</b>\n"
+                            f"⚡ <i>Proceeds returned to wallet for future trading & profit vault.</i>"
+                            f"{solscan_link}\n"
+                            f"───────────────────────────────"
+                        )
                         if target_chat_id:
                             try:
                                 await lead_bot.send_message(
@@ -2814,7 +2746,6 @@ def main():
     application.add_handler(CommandHandler(["sell"], sell_command))
     application.add_handler(CommandHandler(["auto", "autopilot", "interval", "freq"], autopilot_command))
     application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
-    application.add_handler(CommandHandler(["setmoonbag", "moonbag", "coldwallet"], setmoonbag_command))
     application.add_handler(CommandHandler(["security", "audit", "safe"], security_command))
     application.add_handler(CommandHandler(["help", "command", "commands", "guide"], help_command))
 
