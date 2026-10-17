@@ -11,6 +11,7 @@ Handles:
 
 import asyncio
 import json
+import logging
 import os
 import urllib.request
 import urllib.error
@@ -20,6 +21,8 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+logger = logging.getLogger("multi_agent_council.config")
 
 
 @dataclass
@@ -203,15 +206,46 @@ DEFAULT_SLIPPAGE_BPS: int = int(os.getenv("DEFAULT_SLIPPAGE_BPS", "300"))
 SOL_MINT: str = "So11111111111111111111111111111111111111112"
 USDT_SOLANA_MINT: str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
+# Secondary Moonbag / Cold Storage Wallet Address (Generational bags held indefinitely)
+MOONBAG_WALLET_ADDRESS: str = os.getenv("MOONBAG_WALLET_ADDRESS", "").strip()
+MOONBAG_WALLET_FILE: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "moonbag_wallet.json")
+
+def get_moonbag_wallet() -> str:
+    """Returns the configured cold storage moonbag vault wallet address."""
+    if os.path.exists(MOONBAG_WALLET_FILE):
+        try:
+            with open(MOONBAG_WALLET_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                addr = data.get("address", "").strip()
+                if addr:
+                    return addr
+        except Exception:
+            pass
+    return MOONBAG_WALLET_ADDRESS
+
+def set_moonbag_wallet(address: str) -> bool:
+    """Persists a new cold storage moonbag vault wallet address to disk."""
+    global MOONBAG_WALLET_ADDRESS
+    try:
+        os.makedirs(os.path.dirname(MOONBAG_WALLET_FILE), exist_ok=True)
+        with open(MOONBAG_WALLET_FILE, "w", encoding="utf-8") as f:
+            json.dump({"address": address.strip()}, f, indent=2)
+        MOONBAG_WALLET_ADDRESS = address.strip()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save moonbag wallet: {e}")
+        return False
+
 # Position Exit & Profit-Taking Targets
 # Supported strategies:
+# - "DUAL_SPLIT": ⚡ Scalp + 💎 Moonbag (50% sold at +50%/2x to secure initial SOL; 50% held indefinitely for generational runners)
 # - "50PCT_TAKE_PROFIT": Quick 50% profit target (safe scalp / cut down losses)
 # - "2X_TAKE_PROFIT": Double up mode (auto sells when token doubles / +100%)
 # - "TRAILING_RUNNER": Long runner mode (rides 5x-100x; exits when price retraces 25% from peak)
 # - "HOLD_INDEFINITE": Diamond hands (never auto-sells; manual exit only via /sell)
-DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "TRAILING_RUNNER").strip().upper()
-if DEFAULT_EXIT_STRATEGY not in ("TRAILING_RUNNER", "2X_TAKE_PROFIT", "50PCT_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
-    DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
+DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "DUAL_SPLIT").strip().upper()
+if DEFAULT_EXIT_STRATEGY not in ("DUAL_SPLIT", "TRAILING_RUNNER", "2X_TAKE_PROFIT", "50PCT_TAKE_PROFIT", "AUTO_EXIT", "HOLD_INDEFINITE"):
+    DEFAULT_EXIT_STRATEGY = "DUAL_SPLIT"
 
 TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "100.0"))  # Fixed 2x take-profit (+100.0% gain)
 STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Hard stop-loss limit (-25.0%)

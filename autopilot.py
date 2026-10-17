@@ -534,14 +534,15 @@ class AutopilotEngine:
                             continue
 
                         curr_price = live_pair.get("price_usd", 0.0)
-                        should_exit, reason = position_manager.check_exit_triggers(pos.mint, curr_price)
+                        should_exit, reason, sell_pct = position_manager.check_exit_triggers(pos.mint, curr_price)
                         if should_exit:
-                            logger.info(f"🎯 Automated exit triggered for {pos.symbol} ({pos.mint}): {reason}")
+                            logger.info(f"🎯 Automated exit triggered for {pos.symbol} ({pos.mint}): {reason} (Sell {sell_pct:.0f}%)")
 
-                            # Execute SELL 100% via Market Sniffer
+                            # Execute SELL via Market Sniffer
+                            prompt_str = f"SELL {sell_pct:.0f}% of {pos.mint}" if sell_pct < 100.0 else f"SELL 100% of {pos.mint}"
                             exit_res = await MSnifferExecutor.execute_consensus(
-                                prompt=f"SELL 100% of {pos.mint}",
-                                consensus_text=f"Council Automated Exit: {reason}",
+                                prompt=prompt_str,
+                                consensus_text=f"Council Automated Exit ({sell_pct:.0f}%): {reason}",
                                 yes_count=5,
                                 total_votes=5,
                                 broadcaster_bot=lead_bot,
@@ -549,26 +550,50 @@ class AutopilotEngine:
                             )
 
                             if exit_res.success:
-                                position_manager.close_position(
-                                    mint=pos.mint,
-                                    exit_price_usd=curr_price,
-                                    exit_reason=reason,
-                                    exit_tx_hash=exit_res.tx_hash or "",
-                                )
+                                if sell_pct < 100.0:
+                                    position_manager.record_partial_exit(
+                                        mint=pos.mint,
+                                        sold_pct=sell_pct,
+                                        exit_price_usd=curr_price,
+                                        exit_reason=reason,
+                                        exit_tx_hash=exit_res.tx_hash or "",
+                                    )
+                                    pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
+                                    solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exit_res.tx_hash}'>View Solana Transaction</a>" if exit_res.tx_hash else ""
+                                    exit_msg = (
+                                        f"⚡ <b>SCALP PROFIT BANKED + MOONBAG ACTIVE: {html.escape(pos.name)}</b>\n"
+                                        f"───────────────────────────────\n"
+                                        f"🪙 <b>Token:</b> {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)\n"
+                                        f"🎯 <b>Action:</b> Sold 50% to bank profit & fully recover original SOL capital!\n"
+                                        f"💎 <b>Moonbag Status:</b> Remaining 50% permanently held as <b>DIAMOND HANDS MOONBAG</b> for generational run!\n"
+                                        f"📉 <b>Exit Trigger:</b> <code>{reason}</code>\n"
+                                        f"💵 <b>Entry Price:</b> <code>${pos.entry_price_usd:.6f}</code> | <b>Exit:</b> <code>${curr_price:.6f}</code>\n"
+                                        f"📊 <b>Scalp Performance:</b> <b>{pnl_badge}</b>\n"
+                                        f"🛡️ <i>Initial capital safe. You cannot lose on this coin anymore.</i>"
+                                        f"{solscan_link}\n"
+                                        f"───────────────────────────────"
+                                    )
+                                else:
+                                    position_manager.close_position(
+                                        mint=pos.mint,
+                                        exit_price_usd=curr_price,
+                                        exit_reason=reason,
+                                        exit_tx_hash=exit_res.tx_hash or "",
+                                    )
 
-                                pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
-                                solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exit_res.tx_hash}'>View Solana Transaction</a>" if exit_res.tx_hash else ""
-                                exit_msg = (
-                                    f"🎯 <b>COUNCIL POSITION EXIT EXECUTED: SOLD {html.escape(pos.name)}</b>\n"
-                                    f"───────────────────────────────\n"
-                                    f"🪙 <b>Token:</b> {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)\n"
-                                    f"📉 <b>Exit Trigger:</b> <code>{reason}</code>\n"
-                                    f"💵 <b>Entry Price:</b> <code>${pos.entry_price_usd:.6f}</code> | <b>Exit:</b> <code>${curr_price:.6f}</code>\n"
-                                    f"📊 <b>Realized Performance:</b> <b>{pnl_badge}</b>\n"
-                                    f"⚡ <i>SOL proceeds returned to wallet for future trading & profit vault.</i>"
-                                    f"{solscan_link}\n"
-                                    f"───────────────────────────────"
-                                )
+                                    pnl_badge = f"+{pos.pnl_pct:.1f}% 🟢" if pos.pnl_pct >= 0 else f"{pos.pnl_pct:.1f}% 🔴"
+                                    solscan_link = f"\n🔗 <a href='https://solscan.io/tx/{exit_res.tx_hash}'>View Solana Transaction</a>" if exit_res.tx_hash else ""
+                                    exit_msg = (
+                                        f"🎯 <b>COUNCIL POSITION EXIT EXECUTED: SOLD {html.escape(pos.name)}</b>\n"
+                                        f"───────────────────────────────\n"
+                                        f"🪙 <b>Token:</b> {html.escape(pos.name)} (<code>${html.escape(pos.symbol)}</code>)\n"
+                                        f"📉 <b>Exit Trigger:</b> <code>{reason}</code>\n"
+                                        f"💵 <b>Entry Price:</b> <code>${pos.entry_price_usd:.6f}</code> | <b>Exit:</b> <code>${curr_price:.6f}</code>\n"
+                                        f"📊 <b>Realized Performance:</b> <b>{pnl_badge}</b>\n"
+                                        f"⚡ <i>SOL proceeds returned to wallet for future trading & profit vault.</i>"
+                                        f"{solscan_link}\n"
+                                        f"───────────────────────────────"
+                                    )
                                 try:
                                     await lead_bot.send_message(
                                         chat_id=chat_id,

@@ -37,13 +37,16 @@ class Position:
     amount_sol: float
     entry_timestamp: float
     status: str = "OPEN"  # "OPEN" or "CLOSED"
-    exit_strategy: str = "AUTO_EXIT"  # "AUTO_EXIT" or "HOLD_INDEFINITE"
+    exit_strategy: str = "DUAL_SPLIT"  # "DUAL_SPLIT", "50PCT_TAKE_PROFIT", "2X_TAKE_PROFIT", "TRAILING_RUNNER", "HOLD_INDEFINITE"
     pnl_pct: float = 0.0
     buy_tx_hash: str = ""
     exit_tx_hash: str = ""
     exit_price_usd: float = 0.0
     exit_reason: str = ""
     exit_timestamp: float = 0.0
+    scalp_sold: bool = False
+    moonbag_retained: bool = False
+    wallet_type: str = "HOT_TRADING"
 
 
 class PositionManager:
@@ -94,7 +97,9 @@ class PositionManager:
     ) -> Position:
         """Registers a newly purchased token position with designated exit strategy."""
         strat = exit_strategy.upper() if exit_strategy else config.DEFAULT_EXIT_STRATEGY
-        if strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
+        if strat in ("DUAL", "DUAL_SPLIT", "SPLIT", "MOONBAG", "MOONBAG_SPLIT"):
+            strat = "DUAL_SPLIT"
+        elif strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
             strat = "50PCT_TAKE_PROFIT"
         elif strat in ("2X", "2X_TAKE_PROFIT", "AUTO_EXIT", "100", "100%"):
             strat = "2X_TAKE_PROFIT"
@@ -103,7 +108,7 @@ class PositionManager:
         elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND"):
             strat = "HOLD_INDEFINITE"
         else:
-            strat = "TRAILING_RUNNER"
+            strat = "DUAL_SPLIT"
 
         pos = Position(
             mint=mint,
@@ -118,6 +123,9 @@ class PositionManager:
             exit_strategy=strat,
             pnl_pct=0.0,
             buy_tx_hash=tx_hash,
+            scalp_sold=False,
+            moonbag_retained=False,
+            wallet_type="HOT_TRADING",
         )
         self.positions[mint] = pos
         self._save()
@@ -138,27 +146,26 @@ class PositionManager:
             return False, f"No open position found for token <code>{mint}</code>"
 
         strat = strategy.upper()
-        if strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
+        if strat in ("DUAL", "DUAL_SPLIT", "SPLIT", "MOONBAG", "MOONBAG_SPLIT"):
+            strat = "DUAL_SPLIT"
+            desc = "⚡ SCALP + 💎 MOONBAG (Sell 50% at profit, hold 50% indefinitely)"
+        elif strat in ("50", "50%", "50PCT", "SCALP", "SCALP_50", "50PCT_TAKE_PROFIT"):
             strat = "50PCT_TAKE_PROFIT"
+            desc = "⚡ QUICK 50% SCALP (+50.0% Take-Profit)"
         elif strat in ("2X", "2X_TAKE_PROFIT", "AUTO_EXIT", "100", "100%"):
             strat = "2X_TAKE_PROFIT"
+            desc = "🎯 FIXED 2X TAKE-PROFIT (+100.0% / 2x Return)"
         elif strat in ("TRAILING_RUNNER", "RUNNER", "TRAIL", "LONG"):
             strat = "TRAILING_RUNNER"
+            desc = f"🚀 LONG RUNNER (Trail peak by -{config.TRAILING_STOP_PCT:.0f}% after +50%)"
         elif strat in ("HOLD_INDEFINITE", "HOLD", "DIAMOND"):
             strat = "HOLD_INDEFINITE"
+            desc = "💎 HOLD INDEFINITELY"
         else:
-            return False, "Strategy must be 50PCT_TAKE_PROFIT (50%), 2X_TAKE_PROFIT (2x), TRAILING_RUNNER, or HOLD_INDEFINITE"
+            return False, "Strategy must be DUAL_SPLIT (Scalp+Moonbag), 50PCT_TAKE_PROFIT, 2X_TAKE_PROFIT, TRAILING_RUNNER, or HOLD_INDEFINITE"
 
         pos.exit_strategy = strat
         self._save()
-        if strat == "HOLD_INDEFINITE":
-            desc = "💎 HOLD INDEFINITELY"
-        elif strat == "TRAILING_RUNNER":
-            desc = f"🚀 LONG RUNNER (Trail peak by -{config.TRAILING_STOP_PCT:.0f}% after +50%)"
-        elif strat == "50PCT_TAKE_PROFIT":
-            desc = "⚡ QUICK 50% SCALP (+50.0% Take-Profit)"
-        else:
-            desc = "🎯 FIXED 2X TAKE-PROFIT (+100.0% / 2x Return)"
         safe_name = html.escape(pos.name)
         safe_sym = html.escape(pos.symbol)
         return True, f"Updated strategy for <b>{safe_name}</b> (<code>${safe_sym}</code>) to <b>{desc}</b>"
@@ -180,62 +187,114 @@ class PositionManager:
         self._save()
         return pos
 
-    def check_exit_triggers(self, mint: str, current_price_usd: float) -> Tuple[bool, str]:
+    def check_exit_triggers(self, mint: str, current_price_usd: float) -> Tuple[bool, str, float]:
         """
         Evaluates whether a position should be sold to take profit or prevent losses.
-        Returns: (should_exit, reason_description)
+        Returns: (should_exit, reason_description, sell_pct)
+        sell_pct: 50.0 for dual split scalp sale; 100.0 for full exit.
         """
         pos = self.update_price(mint, current_price_usd)
         if not pos or pos.status != "OPEN":
-            return False, ""
+            return False, "", 0.0
 
         # Option: HOLD_INDEFINITE (Diamond Hands)
         # Never triggers automatic sell; position is held until Admin manually exits with /sell
         if pos.exit_strategy == "HOLD_INDEFINITE":
-            return False, ""
+            return False, "", 0.0
 
         pnl = pos.pnl_pct
+
+        # Strategy 0: DUAL_SPLIT (⚡ Scalp 50% for profit + 💎 Hold 50% as Forever Moonbag)
+        if pos.exit_strategy in ("DUAL_SPLIT", "SPLIT", "MOONBAG_SPLIT"):
+            if not pos.scalp_sold:
+                # 1. Scalp Profit Target: Sells 50% of bag at +50% or +100% gain!
+                # Default is +50.0% gain: recovers full original SOL capital + 25% profit, making moonbag 100% risk-free!
+                if pnl >= 50.0 or current_price_usd >= pos.entry_price_usd * 1.50:
+                    return (
+                        True,
+                        f"⚡ Scalp Target Hit (+{pnl:.1f}%). Sold 50% bag to bank profit & secure SOL. Remaining 50% permanently held as FREE MOONBAG! 💎🚀",
+                        50.0,
+                    )
+
+                # 2. Capital Protection Stop-Loss before scalp is banked (-25%)
+                if pnl <= -config.STOP_LOSS_PCT:
+                    return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)", 100.0
+
+                return False, "", 0.0
+            else:
+                # Scalp already banked! The remaining 50% is a diamond hands moonbag held indefinitely!
+                return False, "", 0.0
 
         # Strategy 1: TRAILING_RUNNER (Long Runner Mode: Lets winners run to 5x-100x; locks in profit once peak pulls back 25%)
         if pos.exit_strategy == "TRAILING_RUNNER":
             # 1. Hard Stop-Loss Trigger (default -25% loss limit)
             if pnl <= -config.STOP_LOSS_PCT:
-                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)"
+                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)", 100.0
 
             # 2. Once in profit (peak >= entry * 1.50, i.e. +50% or higher), trail peak price!
             # With TRAILING_STOP_PCT = 25%, it gives plenty of breathing room for memecoin volatility
             if pos.peak_price_usd >= pos.entry_price_usd * 1.50:
                 drawdown_from_peak = ((pos.peak_price_usd - current_price_usd) / pos.peak_price_usd) * 100.0
                 if drawdown_from_peak >= config.TRAILING_STOP_PCT:
-                    return True, f"Trailing Profit Lock Triggered (-{drawdown_from_peak:.1f}% from peak, locked in +{pnl:.1f}% gain)"
+                    return True, f"Trailing Profit Lock Triggered (-{drawdown_from_peak:.1f}% from peak, locked in +{pnl:.1f}% gain)", 100.0
 
-            return False, ""
+            return False, "", 0.0
 
         # Strategy 2: 2X_TAKE_PROFIT / AUTO_EXIT (Fixed 2x Mode: Sells once it doubles / reaches +100% gain)
         if pos.exit_strategy in ("2X_TAKE_PROFIT", "AUTO_EXIT"):
             # 1. 2X Target Reached (Price doubled or pnl >= 100%)
             if pnl >= 100.0 or current_price_usd >= pos.entry_price_usd * 2.0:
-                return True, f"2X Take-Profit Target Reached (+{pnl:.1f}% gain / 2x return)"
+                return True, f"2X Take-Profit Target Reached (+{pnl:.1f}% gain / 2x return)", 100.0
 
             # 2. Hard Stop-Loss Trigger (default -25%)
             if pnl <= -config.STOP_LOSS_PCT:
-                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)"
+                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)", 100.0
 
-            return False, ""
+            return False, "", 0.0
 
         # Strategy 3: 50PCT_TAKE_PROFIT / SCALP_50 (Quick 50% Scalp: Sells once it reaches +50% gain)
         if pos.exit_strategy in ("50PCT_TAKE_PROFIT", "SCALP_50"):
             # 1. 50% Target Reached (Price >= entry * 1.50 or pnl >= 50%)
             if pnl >= 50.0 or current_price_usd >= pos.entry_price_usd * 1.50:
-                return True, f"50% Take-Profit Target Reached (+{pnl:.1f}% gain)"
+                return True, f"50% Take-Profit Target Reached (+{pnl:.1f}% gain)", 100.0
 
             # 2. Hard Stop-Loss Trigger (default -25%)
             if pnl <= -config.STOP_LOSS_PCT:
-                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)"
+                return True, f"Stop-Loss Cut ({pnl:.1f}% loss limit)", 100.0
 
-            return False, ""
+            return False, "", 0.0
 
-        return False, ""
+        return False, "", 0.0
+
+    def record_partial_exit(
+        self,
+        mint: str,
+        sold_pct: float,
+        exit_price_usd: float,
+        exit_reason: str,
+        exit_tx_hash: str = "",
+    ) -> Optional[Position]:
+        """
+        Records a partial exit (e.g. 50% scalp sale in DUAL_SPLIT mode).
+        Locks in realized gains for the scalp portion, updates remaining position size,
+        and converts the remaining bag into a permanent HOLD_INDEFINITE moonbag!
+        """
+        pos = self.positions.get(mint)
+        if not pos or pos.status != "OPEN":
+            return None
+
+        pos.scalp_sold = True
+        pos.moonbag_retained = True
+        pos.exit_reason = exit_reason
+        pos.exit_tx_hash = exit_tx_hash
+        pos.amount_sol = round(pos.amount_sol * (1.0 - sold_pct / 100.0), 4)
+        pos.exit_strategy = "HOLD_INDEFINITE"
+        self._save()
+        logger.info(
+            f"💎 DUAL_SPLIT executed for {pos.symbol}: Sold {sold_pct:.0f}% at ${exit_price_usd:.6f}. "
+            f"Remaining {100.0 - sold_pct:.0f}% permanently converted to FREE MOONBAG held indefinitely!"
+        )
+        return pos
 
     def close_position(
         self,
