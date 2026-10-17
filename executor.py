@@ -56,8 +56,12 @@ class SignalExtractor:
         combined = f"{prompt} {consensus_summary}"
 
         # 1. Extract Solana Mint Address
-        # Check for known dex URLs first (pump.fun, dexscreener, birdeye)
-        dex_match = re.search(r"(?:pump\.fun/coin/|dexscreener\.com/solana/|solscan\.io/token/)([1-9A-HJ-NP-Za-km-z]{32,44})", combined)
+        # Check for known dex URLs first (pump.fun, dexscreener, gmgn, birdeye, solscan)
+        dex_match = re.search(
+            r"(?:pump\.fun/(?:coin/)?|dexscreener\.com/solana/|gmgn\.ai/sol/token/|birdeye\.so/token/|solscan\.io/token/)([1-9A-HJ-NP-Za-km-z]{32,44})",
+            combined,
+            re.IGNORECASE,
+        )
         if dex_match:
             mint = dex_match.group(1)
         else:
@@ -138,12 +142,8 @@ class MSnifferExecutor:
             tg_result = await cls._dispatch_telegram(
                 mint, action, amount, symbol, reason, broadcaster_bot, reply_to_chat_id, start_time
             )
-            # If webhook wasn't used or failed, use tg_result
             if not result or (not result.success and tg_result.success):
                 result = tg_result
-
-        if dispatch_mode == "local_ipc":
-            result = await cls._dispatch_local_ipc(mint, action, amount, symbol, reason, start_time)
 
         if not result:
             result = ExecutionResult(
@@ -151,7 +151,7 @@ class MSnifferExecutor:
                 action=action,
                 mint=mint,
                 amount=amount,
-                message=f"Unknown or unhandled dispatch mode: '{config.MSNIFFER_DISPATCH_MODE}'",
+                message=f"No execution dispatcher succeeded for mode '{config.MSNIFFER_DISPATCH_MODE}'.",
                 duration_seconds=time.time() - start_time,
                 dispatch_mode=dispatch_mode,
             )
@@ -291,61 +291,6 @@ class MSnifferExecutor:
                 dispatch_mode="telegram",
             )
 
-    @classmethod
-    async def _dispatch_local_ipc(
-        cls, mint: str, action: str, amount: float, symbol: str, reason: str, start_time: float
-    ) -> ExecutionResult:
-        """Dispatches signal via local JSON queue file for local co-located bots."""
-        local_dir = "/home/lazorr/market_sniffer_bot/data"
-        if not os.path.exists(local_dir):
-            os.makedirs(local_dir, exist_ok=True)
-
-        signal_file = os.path.join(local_dir, "signals_queue.json")
-        payload = {
-            "timestamp": time.time(),
-            "action": action,
-            "mint": mint,
-            "amount": amount,
-            "symbol": symbol,
-            "slippage_bps": config.DEFAULT_SLIPPAGE_BPS,
-            "reason": reason,
-            "status": "pending",
-        }
-
-        try:
-            signals = []
-            if os.path.exists(signal_file):
-                try:
-                    with open(signal_file, "r") as f:
-                        signals = json.load(f)
-                except Exception:
-                    signals = []
-
-            signals.append(payload)
-            with open(signal_file, "w") as f:
-                json.dump(signals, f, indent=2)
-
-            return ExecutionResult(
-                success=True,
-                action=action,
-                mint=mint,
-                amount=amount,
-                message=f"Queued signal to local Market Sniffer IPC queue ({signal_file})",
-                duration_seconds=time.time() - start_time,
-                dispatch_mode="local_ipc",
-                raw_response=payload,
-            )
-        except Exception as e:
-            logger.error(f"Error writing to local IPC file: {e}")
-            return ExecutionResult(
-                success=False,
-                action=action,
-                mint=mint,
-                amount=amount,
-                message=f"Local IPC write error: {str(e)}",
-                duration_seconds=time.time() - start_time,
-                dispatch_mode="local_ipc",
-            )
 
 
 def format_execution_announcement(result: ExecutionResult) -> str:

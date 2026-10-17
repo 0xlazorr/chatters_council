@@ -71,22 +71,12 @@ BOT_TYPING_DELAY_SECONDS: float = float(os.getenv("BOT_TYPING_DELAY_SECONDS", "1
 
 
 # =============================================================================
-# 2. LLM BACKEND & API KEYS (Unified OpenRouter or Native Providers)
+# 2. LLM BACKEND & API KEYS (Unified OpenRouter Engine)
 # =============================================================================
 
-# OpenRouter Unified API Key (Recommended: one key powers all 5-15 AI models)
+# OpenRouter Unified API Key (Powers all 5 AI models with 1 key)
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").strip()
-
-# Native Provider Keys (Used if OPENROUTER_API_KEY is not set or overridden per agent)
-OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
-
-ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
-DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "").strip()
-GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
-GROK_API_KEY: str = os.getenv("GROK_API_KEY", os.getenv("XAI_API_KEY", "")).strip()
-MISTRAL_API_KEY: str = os.getenv("MISTRAL_API_KEY", "").strip()
 
 
 # =============================================================================
@@ -157,8 +147,11 @@ MOOD_PROMPTS: Dict[str, str] = {
 # =============================================================================
 
 # All 5 provided Telegram Bot tokens pre-configured matching their @*talkbbot usernames.
-# Additional bots 6 through 15 are defined and can be enabled by setting their token in .env.
+# =============================================================================
+# 5. AGENT ROSTER (The 5 Council Bots)
+# =============================================================================
 
+# Configured for the 5 Telegram bots talking inside "Chatters".
 AGENTS_CONFIG: List[AgentConfig] = [
     # -------------------------------------------------------------------------
     # Bot 1: Claude (Claudetalks / @claudetalkbbot)
@@ -169,9 +162,9 @@ AGENTS_CONFIG: List[AgentConfig] = [
         display_name="Claudetalks",
         username="claudetalkbbot",
         token=os.getenv("BOT_TOKEN_CLAUDE", "8828456879:AAHqJUXEuCK4W--r4t3brAR30mn7sThLMLY").strip(),
-        model=os.getenv("MODEL_CLAUDE", "anthropic/claude-3.5-sonnet").strip(),
-        provider="openrouter" if OPENROUTER_API_KEY else "anthropic",
-        role_description="Security & Architecture Auditor",
+        model=os.getenv("MODEL_CLAUDE", "anthropic/claude-sonnet-4.5").strip(),
+        provider="openrouter",
+        role_description="Security & Smart Contract Auditor",
         personality_prompt=(
             "You are Claude (display name Claudetalks). You are the Senior Smart Contract & Security Architect "
             "in the AI Council. You are thoughtful, nuanced, and methodically scrutinize contract safety, "
@@ -191,7 +184,7 @@ AGENTS_CONFIG: List[AgentConfig] = [
         username="gpttalkbbot",
         token=os.getenv("BOT_TOKEN_GPT", "8630079807:AAEhjG1JY8RzayPeI3hLfc5Dixmvh7eJcUs").strip(),
         model=os.getenv("MODEL_GPT", "openai/gpt-4o").strip(),
-        provider="openrouter" if OPENROUTER_API_KEY else "openai",
+        provider="openrouter",
         role_description="Macro Strategist & Liquidity Analyst",
         personality_prompt=(
             "You are GPT (display name GPTtalks). You are the Macro Strategist and Market Structure Analyst "
@@ -212,7 +205,7 @@ AGENTS_CONFIG: List[AgentConfig] = [
         username="deepseektalkbbot",
         token=os.getenv("BOT_TOKEN_DEEPSEEK", "8882002776:AAGdh55_7Ct6RJ3PGDZk_wEAsTnZIrOz0fY").strip(),
         model=os.getenv("MODEL_DEEPSEEK", "deepseek/deepseek-chat").strip(),
-        provider="openrouter" if OPENROUTER_API_KEY else "deepseek",
+        provider="openrouter",
         role_description="Quantitative & Mathematical Strategist",
         personality_prompt=(
             "You are DeepSeek (display name DeepSeektalks). You are the Quantitative Data & Algorithm Specialist "
@@ -233,7 +226,7 @@ AGENTS_CONFIG: List[AgentConfig] = [
         username="geminitalkbbot",
         token=os.getenv("BOT_TOKEN_GEMINI", "8934071377:AAEXDzWKMLjpDkPlxztbmwzPKqRge8vSegk").strip(),
         model=os.getenv("MODEL_GEMINI", "google/gemini-2.5-flash").strip(),
-        provider="openrouter" if OPENROUTER_API_KEY else "gemini",
+        provider="openrouter",
         role_description="Trend Velocity & Ecosystem Synthesizer",
         personality_prompt=(
             "You are Gemini (display name Geminitalks). You are the Ecosystem & Real-Time Trend Synthesizer "
@@ -252,8 +245,8 @@ AGENTS_CONFIG: List[AgentConfig] = [
         display_name="Groktalks",
         username="groktalkbbot",
         token=os.getenv("BOT_TOKEN_GROK", "8607678038:AAHxLLtGoL6gEgnJoN35toGkKPbWCYC8VHI").strip(),
-        model=os.getenv("MODEL_GROK", "x-ai/grok-2").strip(),
-        provider="openrouter" if OPENROUTER_API_KEY else "grok",
+        model=os.getenv("MODEL_GROK", "x-ai/grok-4.5").strip(),
+        provider="openrouter",
         role_description="PvP Momentum & Contrarian Alpha Hunter",
         personality_prompt=(
             "You are Grok (display name Groktalks). You are the High-Momentum Alpha & Degen Sentiment Hunter "
@@ -261,130 +254,6 @@ AGENTS_CONFIG: List[AgentConfig] = [
             "and PvP trader positioning. You speak truth without corporate filter. Keep replies punchy and bold (2-4 sentences)."
         ),
         enabled=True,
-    ),
-
-    # =========================================================================
-    # Bots 6-15: Expandable Slot Lineup (Set BOT_TOKEN_* in .env to activate)
-    # =========================================================================
-    AgentConfig(
-        id="mistral",
-        name="Mistral",
-        display_name="Mistraltalks",
-        username="mistraltalkbbot",
-        token=os.getenv("BOT_TOKEN_MISTRAL", "").strip(),
-        model=os.getenv("MODEL_MISTRAL", "mistralai/mistral-large-2411").strip(),
-        provider="openrouter" if OPENROUTER_API_KEY else "mistral",
-        role_description="Decentralized Protocol & Game Theory Specialist",
-        personality_prompt="You are Mistral (display name Mistraltalks). You specialize in European market flows, open-weights protocol architectures, and game theory.",
-        enabled=bool(os.getenv("BOT_TOKEN_MISTRAL", "").strip()),
-    ),
-    AgentConfig(
-        id="llama",
-        name="Llama",
-        display_name="Llamatalks",
-        username="llamatalkbbot",
-        token=os.getenv("BOT_TOKEN_LLAMA", "").strip(),
-        model=os.getenv("MODEL_LLAMA", "meta-llama/llama-3.3-70b-instruct").strip(),
-        provider="openrouter",
-        role_description="Open-Source On-Chain Auditor",
-        personality_prompt="You are Llama (display name Llamatalks). You specialize in decentralized computing, open systems, and transparent on-chain mechanics.",
-        enabled=bool(os.getenv("BOT_TOKEN_LLAMA", "").strip()),
-    ),
-    AgentConfig(
-        id="qwen",
-        name="Qwen",
-        display_name="Qwentalks",
-        username="qwentalkbbot",
-        token=os.getenv("BOT_TOKEN_QWEN", "").strip(),
-        model=os.getenv("MODEL_QWEN", "qwen/qwen-2.5-72b-instruct").strip(),
-        provider="openrouter",
-        role_description="Global Arbitrage & Market Flow Specialist",
-        personality_prompt="You are Qwen (display name Qwentalks). You specialize in global liquidity distribution, cross-border capital flows, and algorithmic arbitrage.",
-        enabled=bool(os.getenv("BOT_TOKEN_QWEN", "").strip()),
-    ),
-    AgentConfig(
-        id="cohere",
-        name="Cohere",
-        display_name="Coheretalks",
-        username="coheretalkbbot",
-        token=os.getenv("BOT_TOKEN_COHERE", "").strip(),
-        model=os.getenv("MODEL_COHERE", "cohere/command-r-plus").strip(),
-        provider="openrouter",
-        role_description="Enterprise & Settlement Mechanics",
-        personality_prompt="You are Cohere (display name Coheretalks). You specialize in institutional order execution, slippage reduction, and liquidity settlement.",
-        enabled=bool(os.getenv("BOT_TOKEN_COHERE", "").strip()),
-    ),
-    AgentConfig(
-        id="perplexity",
-        name="Perplexity",
-        display_name="Perplexitytalks",
-        username="perplexitytalkbbot",
-        token=os.getenv("BOT_TOKEN_PERPLEXITY", "").strip(),
-        model=os.getenv("MODEL_PERPLEXITY", "perplexity/sonar-reasoning").strip(),
-        provider="openrouter",
-        role_description="Real-Time Web & News Intelligence",
-        personality_prompt="You are Perplexity (display name Perplexitytalks). You specialize in real-time news aggregation, event-driven trading, and social catalyst verification.",
-        enabled=bool(os.getenv("BOT_TOKEN_PERPLEXITY", "").strip()),
-    ),
-    AgentConfig(
-        id="dbrx",
-        name="DBRX",
-        display_name="DBRXtalks",
-        username="dbrxtalkbbot",
-        token=os.getenv("BOT_TOKEN_DBRX", "").strip(),
-        model=os.getenv("MODEL_DBRX", "databricks/dbrx-instruct").strip(),
-        provider="openrouter",
-        role_description="High-Throughput Data Pipeline Specialist",
-        personality_prompt="You are DBRX (display name DBRXtalks). You analyze high-frequency DEX volume logs and identify anomalous buyer clustering.",
-        enabled=bool(os.getenv("BOT_TOKEN_DBRX", "").strip()),
-    ),
-    AgentConfig(
-        id="haiku",
-        name="Haiku",
-        display_name="Haikutalks",
-        username="haikutalkbbot",
-        token=os.getenv("BOT_TOKEN_HAIKU", "").strip(),
-        model=os.getenv("MODEL_HAIKU", "anthropic/claude-3.5-haiku").strip(),
-        provider="openrouter",
-        role_description="High-Speed Flash Scout",
-        personality_prompt="You are Haiku (display name Haikutalks). You are a rapid-response flash scout delivering immediate 1-sentence evaluations.",
-        enabled=bool(os.getenv("BOT_TOKEN_HAIKU", "").strip()),
-    ),
-    AgentConfig(
-        id="minigpt",
-        name="MiniGPT",
-        display_name="MiniGPTtalks",
-        username="minigpttalkbbot",
-        token=os.getenv("BOT_TOKEN_MINIGPT", "").strip(),
-        model=os.getenv("MODEL_MINIGPT", "openai/gpt-4o-mini").strip(),
-        provider="openrouter",
-        role_description="Micro-Cap Rapid Evaluator",
-        personality_prompt="You are MiniGPT (display name MiniGPTtalks). You specialize in low-latency micro-cap vetting and fast execution parameters.",
-        enabled=bool(os.getenv("BOT_TOKEN_MINIGPT", "").strip()),
-    ),
-    AgentConfig(
-        id="grokmini",
-        name="GrokMini",
-        display_name="GrokMinitalks",
-        username="grokminitalkbbot",
-        token=os.getenv("BOT_TOKEN_GROKMINI", "").strip(),
-        model=os.getenv("MODEL_GROKMINI", "x-ai/grok-2-mini").strip(),
-        provider="openrouter",
-        role_description="Micro-Trend Sentiment Scalper",
-        personality_prompt="You are GrokMini (display name GrokMinitalks). You track viral subculture micro-trends and early stage pump.fun token launches.",
-        enabled=bool(os.getenv("BOT_TOKEN_GROKMINI", "").strip()),
-    ),
-    AgentConfig(
-        id="mixtral",
-        name="Mixtral",
-        display_name="Mixtraltalks",
-        username="mixtraltalkbbot",
-        token=os.getenv("BOT_TOKEN_MIXTRAL", "").strip(),
-        model=os.getenv("MODEL_MIXTRAL", "mistralai/mixtral-8x22b-instruct").strip(),
-        provider="openrouter",
-        role_description="Mixture-of-Experts Arbitrageur",
-        personality_prompt="You are Mixtral (display name Mixtraltalks). You leverage multi-expert consensus heuristics for volatile trading environments.",
-        enabled=bool(os.getenv("BOT_TOKEN_MIXTRAL", "").strip()),
     ),
 ]
 

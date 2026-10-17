@@ -40,7 +40,6 @@ from autogen_core.models import (
     ModelInfo,
     RequestUsage,
 )
-from autogen_ext.models.anthropic import AnthropicChatCompletionClient
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 
 import config
@@ -124,13 +123,10 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
 
 def create_model_client(agent: config.AgentConfig) -> ChatCompletionClient:
     """
-    Instantiates the appropriate AutoGen ChatCompletionClient for an agent.
-    Priority:
-    1. OpenRouter unified key (if OPENROUTER_API_KEY is present)
-    2. Native provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, etc.)
-    3. Simulated fallback client (if no keys are available yet)
+    Instantiates the AutoGen ChatCompletionClient for an agent via OpenRouter.
+    - If OPENROUTER_API_KEY is present: queries OpenRouter OpenAI-compatible endpoint.
+    - If OPENROUTER_API_KEY is not set: uses SimulatedCouncilModelClient for zero-cost offline testing.
     """
-    # 1. OpenRouter Unified Setup
     if config.OPENROUTER_API_KEY:
         logger.info(f"Using OpenRouter for agent {agent.name} (model: {agent.model})")
         return OpenAIChatCompletionClient(
@@ -144,73 +140,10 @@ def create_model_client(agent: config.AgentConfig) -> ChatCompletionClient:
             },
         )
 
-    # 2. Native Provider Routing
-    provider = agent.provider.lower()
-
-    if provider == "anthropic" and config.ANTHROPIC_API_KEY:
-        logger.info(f"Using native Anthropic client for {agent.name}")
-        model_name = "claude-3-5-sonnet-20241022" if "/" in agent.model else agent.model
-        return AnthropicChatCompletionClient(
-            model=model_name,
-            api_key=config.ANTHROPIC_API_KEY,
-        )
-
-    if provider == "openai" and config.OPENAI_API_KEY:
-        logger.info(f"Using native OpenAI client for {agent.name}")
-        model_name = "gpt-4o" if "/" in agent.model else agent.model
-        return OpenAIChatCompletionClient(
-            model=model_name,
-            base_url=config.OPENAI_BASE_URL,
-            api_key=config.OPENAI_API_KEY,
-        )
-
-    if provider == "deepseek" and config.DEEPSEEK_API_KEY:
-        logger.info(f"Using native DeepSeek client for {agent.name}")
-        model_name = "deepseek-chat" if "/" in agent.model else agent.model
-        return OpenAIChatCompletionClient(
-            model=model_name,
-            base_url="https://api.deepseek.com",
-            api_key=config.DEEPSEEK_API_KEY,
-        )
-
-    if provider == "gemini" and config.GEMINI_API_KEY:
-        logger.info(f"Using native Google Gemini OpenAI-compatible client for {agent.name}")
-        model_name = "gemini-2.5-flash" if "/" in agent.model else agent.model
-        return OpenAIChatCompletionClient(
-            model=model_name,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=config.GEMINI_API_KEY,
-        )
-
-    if provider == "grok" and config.GROK_API_KEY:
-        logger.info(f"Using native xAI Grok client for {agent.name}")
-        model_name = "grok-2" if "/" in agent.model else agent.model
-        return OpenAIChatCompletionClient(
-            model=model_name,
-            base_url="https://api.x.ai/v1",
-            api_key=config.GROK_API_KEY,
-        )
-
-    if provider == "mistral" and config.MISTRAL_API_KEY:
-        logger.info(f"Using native Mistral client for {agent.name}")
-        model_name = "mistral-large-latest" if "/" in agent.model else agent.model
-        return OpenAIChatCompletionClient(
-            model=model_name,
-            base_url="https://api.mistral.ai/v1",
-            api_key=config.MISTRAL_API_KEY,
-        )
-
-    # 3. Fallback to OpenAI Key if set
-    if config.OPENAI_API_KEY:
-        return OpenAIChatCompletionClient(
-            model="gpt-4o-mini",
-            api_key=config.OPENAI_API_KEY,
-        )
-
-    # 4. Fallback to Simulated Mode with alert
+    # Fallback to Simulated Mode for local testing when key is not in .env
     logger.warning(
-        f"No API key found for agent {agent.name}. Using SimulatedCouncilModelClient. "
-        f"Add OPENROUTER_API_KEY or provider keys to .env for live LLM generation."
+        f"OPENROUTER_API_KEY not configured. Using SimulatedCouncilModelClient for {agent.name}. "
+        f"Add OPENROUTER_API_KEY to .env for live AI responses."
     )
     return SimulatedCouncilModelClient(agent.name, agent.role_description)
 

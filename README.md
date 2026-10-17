@@ -133,32 +133,20 @@ You can get your group chat ID in either of two ways:
 
 ---
 
-### 2. Configure LLM API Keys in `.env`
+### 2. Configure OpenRouter API Key in `.env`
 
-Copy `.env.example` to `.env`:
+Copy `.env.example` to `.env` (or edit existing `.env`):
 ```bash
 cp .env.example .env
 ```
 
-#### Option A: Unified OpenRouter Key (Recommended ⭐)
-OpenRouter provides a unified OpenAI-compatible endpoint that routes to Claude 3.5 Sonnet, GPT-4o, DeepSeek V3/R1, Gemini 2.5 Flash, and Grok 2 under **a single API key and billing balance**:
-1. Sign up at [https://openrouter.ai](https://openrouter.ai).
-2. Generate an API key under [https://openrouter.ai/keys](https://openrouter.ai/keys).
-3. Paste it into `.env`:
-   ```env
-   OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxx
-   ```
-
-#### Option B: Individual Provider API Keys
-If you already possess separate provider keys, you can specify them individually in `.env`:
+Open `.env` and paste your single **OpenRouter API Key**:
 ```env
-OPENAI_API_KEY=sk-proj-xxxxxxxx
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
-DEEPSEEK_API_KEY=sk-xxxxxxxx
-GEMINI_API_KEY=AIzaxxxxxxxx
-GROK_API_KEY=xai-xxxxxxxx
-MISTRAL_API_KEY=xxxxxxxx
+OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+> [!TIP]
+> **One Single Key Powers All 5 Council Bots**:
+> No need to juggle separate OpenAI, Anthropic, Google, xAI, or DeepSeek accounts. OpenRouter handles all token balances, rate limits, and model routing transparently under one unified key.
 
 ---
 
@@ -168,15 +156,9 @@ The council's `/exe` and `/dve` commands automatically execute trades or audits 
 
 In your `.env`:
 ```env
-# Choose your dispatch mode: "webhook", "telegram", "local_ipc", or "all"
+# HTTP Webhook dispatch to local Market Sniffer instance (Port 8088)
 MSNIFFER_DISPATCH_MODE=webhook
-
-# 1. HTTP Webhook (Co-located with market_sniffer_bot)
-MSNIFFER_WEBHOOK_URL=http://127.0.0.1:8080/trade
-MSNIFFER_SECRET=your_secret_from_market_sniffer
-
-# 2. Telegram Signal Dispatch (Dispatches /signal to @Msnifferbot)
-MSNIFFER_CHAT_ID=@Msnifferbot
+MSNIFFER_WEBHOOK_URL=http://127.0.0.1:8088/trade
 
 # Trade Defaults
 DEFAULT_TRADE_AMOUNT_SOL=0.25
