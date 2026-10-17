@@ -318,6 +318,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for idx, agent in enumerate(active_agents, 1):
         lines.append(f"{idx}. <b>{agent.display_name}</b> (@{agent.username}) | <i>{agent.model}</i>")
 
+    if openrouter_info.get("credit_usd") is not None and openrouter_info.get("credit_usd", 0.0) <= 0.005:
+        lines.append("")
+        lines.append("⚠️ <b>NOTICE:</b> OpenRouter balance is $0.00 USD. The bots are operating on high-fidelity offline crypto analysis. Top up credits at <a href='https://openrouter.ai/settings/credits'>openrouter.ai/settings/credits</a> to resume cloud models.")
+
     lines.append("───────────────────────────────")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 

@@ -125,11 +125,19 @@ async def check_openrouter_status() -> Dict[str, Any]:
             return {"configured": True, "active": True, "key_data": key_data, "credit_usd": credit_usd}
 
         res = await loop.run_in_executor(None, _query)
-        cred_str = f" | Credit: ${res['credit_usd']:.2f} USD" if res.get("credit_usd") is not None else ""
+        credit_usd = res.get("credit_usd")
+        if credit_usd is not None and credit_usd <= 0.005:
+            return {
+                "configured": True,
+                "active": False,
+                "credit_usd": 0.0,
+                "status": "⚠️ OpenRouter Credits Depleted ($0.00 USD) — Add funds at openrouter.ai/settings/credits",
+            }
+        cred_str = f" | Credit: ${credit_usd:.2f} USD" if credit_usd is not None else ""
         return {
             "configured": True,
             "active": True,
-            "credit_usd": res.get("credit_usd"),
+            "credit_usd": credit_usd,
             "status": f"OpenRouter Unified Engine (Active 🟢{cred_str})",
         }
     except urllib.error.HTTPError as he:
@@ -258,7 +266,7 @@ AGENTS_CONFIG: List[AgentConfig] = [
         display_name="Claudetalks",
         username="claudetalkbbot",
         token=os.getenv("BOT_TOKEN_CLAUDE", "8828456879:AAHqJUXEuCK4W--r4t3brAR30mn7sThLMLY").strip(),
-        model=os.getenv("MODEL_CLAUDE", "anthropic/claude-sonnet-4.5").strip(),
+        model=os.getenv("MODEL_CLAUDE", "anthropic/claude-haiku-4.5").strip(),
         provider="openrouter",
         role_description="Solana Security Auditor & Smart Contract Risk Analyst",
         personality_prompt=(
@@ -278,7 +286,7 @@ AGENTS_CONFIG: List[AgentConfig] = [
         display_name="GPTtalks",
         username="gpttalkbbot",
         token=os.getenv("BOT_TOKEN_GPT", "8630079807:AAEhjG1JY8RzayPeI3hLfc5Dixmvh7eJcUs").strip(),
-        model=os.getenv("MODEL_GPT", "openai/gpt-4o").strip(),
+        model=os.getenv("MODEL_GPT", "openai/gpt-4o-mini").strip(),
         provider="openrouter",
         role_description="Crypto Macro Strategist & Liquidity Architect",
         personality_prompt=(
