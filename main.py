@@ -30,7 +30,7 @@ import urllib.parse
 import json
 import re
 
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.request import HTTPXRequest
 from telegram.ext import (
@@ -223,16 +223,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• <code>/dve &lt;prompt&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute)\n"
         f"• <code>/mood &lt;type&gt;</code> - Switch mood (e.g. skeptical, aggressive, ruthless)\n"
         f"• <code>/status</code> - View active council roster & endpoints\n"
-        f"• <code>/help</code> - Detailed command reference\n\n"
+        f"• <code>/command</code> - View all available commands & cheat sheet\n"
+        f"• <code>/help</code> - Detailed operational guide\n\n"
         f"📍 <i>Current Chat ID:</i> <code>{chat_id}</code>"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /help command."""
+    """Handles /command, /commands, and /help."""
     text = (
-        "📖 <b>AI Council Command Reference</b>\n"
+        "📖 <b>AI COUNCIL ALL AVAILABLE COMMANDS (/command)</b>\n"
         "───────────────────────────────\n\n"
         "<b>🗣️ Operational Modes (Slash Commands):</b>\n"
         "• <code>/deb &lt;prompt&gt;</code> - Multi-turn debate across the 5 models\n"
@@ -1453,6 +1454,32 @@ async def post_init(application: Application):
     council = CouncilOrchestrator(active_agents)
     logger.info(f"🏛️ Council Orchestrator ready with {len(active_agents)} AI members.")
 
+    # Register bot commands menu in Telegram UI
+    bot_commands = [
+        BotCommand("command", "Display full AI Council command cheatsheet"),
+        BotCommand("help", "Detailed system guide and operational modes"),
+        BotCommand("dve", "Full Pipeline: Debate ➔ Vote ➔ Execute on Solana"),
+        BotCommand("exe", "Vote & Execute: consensus triggers Market Sniffer"),
+        BotCommand("vot", "Formal Council Vote with majority consensus"),
+        BotCommand("deb", "Multi-turn debate across the 5 AI council debaters"),
+        BotCommand("auto", "Manage Autonomous Autopilot stream trading (on|off|status)"),
+        BotCommand("positions", "View open positions, entry prices, and live PnL %"),
+        BotCommand("exitmode", "Toggle exit strategy: Auto-Exit (+50%) vs Hold Indefinitely"),
+        BotCommand("tp", "Customize Take-Profit target percentage (e.g. /tp 50)"),
+        BotCommand("vault", "View or customize Profit Vault sweep threshold (/vault 50)"),
+        BotCommand("sell", "Manually sell token position (/sell <CA> [pct])"),
+        BotCommand("invest", "View or change default trade size (0.05 - 1.00 SOL)"),
+        BotCommand("wallet", "View Market Sniffer execution wallet & SOL balance"),
+        BotCommand("mood", "Change council personality (skeptical, ruthless, etc.)"),
+        BotCommand("status", "View active models, autopilot state & endpoints"),
+        BotCommand("cancel", "Abort active deliberation or halt autopilot"),
+    ]
+    try:
+        await application.bot.set_my_commands(bot_commands)
+        logger.info("✅ Telegram bot command menu registered successfully.")
+    except Exception as ce:
+        logger.debug(f"Could not register command menu: {ce}")
+
 
 def main():
     """Main application runner."""
@@ -1491,6 +1518,7 @@ def main():
 
     # 1. Command handlers
     application.add_handler(CommandHandler(["start"], start_command))
+    application.add_handler(CommandHandler(["command", "commands"], help_command))
     application.add_handler(CommandHandler(["help"], help_command))
     application.add_handler(CommandHandler(["status"], status_command))
     application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
