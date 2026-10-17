@@ -364,7 +364,7 @@ Adjusts the collective perspective and debate style:
 
 ### 1. Install Dependencies
 ```bash
-cd /home/lazorr/multi_agent_talks
+cd /home/lazorr/chatters
 pip install -r requirements.txt
 ```
 
@@ -373,7 +373,7 @@ Ensure your bot tokens and preferred LLM API keys are populated in `.env`.
 
 ### 3. Start the System
 ```bash
-python3 main.py
+bots start chatters
 ```
 
 On startup, you will observe the startup banner and display name synchronization:
@@ -416,11 +416,14 @@ To add an agent:
 ## 📁 Project Structure
 
 ```
-multi_agent_talks/
+chatters/
 ├── main.py              # Telegram Bot application entrypoint, startup sync & command handlers
 ├── agents.py            # Microsoft AutoGen orchestration, multi-bot Telegram broadcasting & voting
 ├── config.py            # Bot tokens (up to 15), OpenRouter/native LLM endpoints & mood prompts
 ├── executor.py          # Market Sniffer bridge (Webhook, Telegram, Local IPC) & CA extractor
+├── autopilot.py         # Autonomous 24/7 DexScreener screening and trading loop
+├── positions.py         # Position tracking and automated profit-taking / trailing stop engine
+├── vault.py             # One-way USDT Profit Vault sweeper
 ├── requirements.txt     # Python package dependencies
 ├── .env.example         # Documented environment variables template
 ├── .env                 # Live environment configuration
