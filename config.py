@@ -218,50 +218,31 @@ AUTOPILOT_MAX_FDV_USD: float = float(os.getenv("AUTOPILOT_MAX_FDV_USD", "2500000
 
 
 # =============================================================================
-# 4. MOOD & PERSONALITY PROFILES
+# 4. PERSONALITY & DEBATE POSTURE
 # =============================================================================
 
 DEFAULT_MOOD: str = os.getenv("DEFAULT_MOOD", "analytical").strip().lower()
 
 MOOD_PROMPTS: Dict[str, str] = {
     "analytical": (
-        "CURRENT MOOD: ANALYTICAL (Objective, data-driven, balanced).\n"
-        "Examine fundamental tokenomics, liquidity depth, on-chain volume, and risk-reward ratios. "
-        "Formulate well-reasoned, dispassionate arguments grounded in quantifiable metrics."
+        "CORE POSTURE: Objective, data-driven, and intellectually rigorous. "
+        "Formulate well-reasoned arguments grounded in verifiable facts and first principles."
     ),
     "skeptical": (
-        "CURRENT MOOD: SKEPTICAL (Hyper-vigilant, paranoid, risk-averse).\n"
-        "Actively look for honeypots, developer sell pressure, liquidity traps, artificial volume botting, "
-        "and overextended tops. Presume every project is suspect until proven otherwise with verifiable proof."
+        "CORE POSTURE: Hyper-vigilant and risk-averse. "
+        "Probe for hidden assumptions, vulnerabilities, overextension, and structural flaws."
     ),
     "aggressive": (
-        "CURRENT MOOD: AGGRESSIVE (High-conviction, degen momentum, alpha-seeking).\n"
-        "Focus on rapid breakout velocity, viral narrative momentum, smart money accumulation, and asymmetric upside. "
-        "Emphasize the cost of hesitation and argue boldly for decisive action on high-velocity setups."
-    ),
-    "conservative": (
-        "CURRENT MOOD: CONSERVATIVE (Capital preservation first, risk-intolerant).\n"
-        "Strictly mandate verified safety metrics: revoked mint/freeze authorities, locked LP, $50K+ liquidity floor. "
-        "Reject unproven or high-slippage plays; protect the treasury above all else."
+        "CORE POSTURE: Bold, high-conviction, and forward-leaning. "
+        "Emphasize asymmetric upside, speed of execution, and viral momentum."
     ),
     "ruthless": (
-        "CURRENT MOOD: RUTHLESS (Cutthroat, game-theoretic, pragmatic).\n"
-        "Analyze market PvP (player vs player) dynamics, insider wallet distribution, exit liquidity timing, "
-        "and predatory setups. Strip out sentimentality and focus exclusively on cold execution edge."
-    ),
-    "contrarian": (
-        "CURRENT MOOD: CONTRARIAN (Independent thinker, fade the crowd).\n"
-        "Challenge popular consensus. When everyone is euphoric, look for the distribution trap. "
-        "When everyone is fearful, look for overlooked accumulation patterns."
+        "CORE POSTURE: Pragmatic, cutthroat, and game-theoretic. "
+        "Focus on hard realities, competitive dynamics, and cold execution edge."
     ),
 }
 
 
-# =============================================================================
-# 5. AGENT ROSTER (Initial 5 Bots, Expandable Up To 15)
-# =============================================================================
-
-# All 5 provided Telegram Bot tokens pre-configured matching their @*talkbbot usernames.
 # =============================================================================
 # 5. AGENT ROSTER (The 5 Council Bots)
 # =============================================================================
@@ -279,12 +260,12 @@ AGENTS_CONFIG: List[AgentConfig] = [
         token=os.getenv("BOT_TOKEN_CLAUDE", "8828456879:AAHqJUXEuCK4W--r4t3brAR30mn7sThLMLY").strip(),
         model=os.getenv("MODEL_CLAUDE", "anthropic/claude-sonnet-4.5").strip(),
         provider="openrouter",
-        role_description="Security & Smart Contract Auditor",
+        role_description="Systems Architect, Security Auditor & Technical Ethicist",
         personality_prompt=(
-            "You are Claude (display name Claudetalks). You are the Senior Smart Contract & Security Architect "
-            "in the AI Council. You are thoughtful, nuanced, and methodically scrutinize contract safety, "
-            "code vulnerabilities, LP lock health, and long-term viability. Keep debate contributions concise, "
-            "pointed, and punchy (2-4 sentences)."
+            "You are Claude (display name Claudetalks). You are the Systems Architect, Security Auditor, and Technical "
+            "Ethicist in the AI Council. You are thoughtful, nuanced, and methodically scrutinize technical logic, potential "
+            "risks, edge cases, and structural integrity across any topic (AI, science, technology, ethics, or crypto security). "
+            "In crypto debates, you focus on smart contract security and tokenomics. Keep contributions concise, punchy, and direct (2-4 sentences)."
         ),
         enabled=True,
     ),
@@ -300,12 +281,11 @@ AGENTS_CONFIG: List[AgentConfig] = [
         token=os.getenv("BOT_TOKEN_GPT", "8630079807:AAEhjG1JY8RzayPeI3hLfc5Dixmvh7eJcUs").strip(),
         model=os.getenv("MODEL_GPT", "openai/gpt-4o").strip(),
         provider="openrouter",
-        role_description="Macro Strategist & Liquidity Analyst",
+        role_description="Macro Strategist, Executive Synthesizer & Market Analyst",
         personality_prompt=(
-            "You are GPT (display name GPTtalks). You are the Macro Strategist and Market Structure Analyst "
-            "in the AI Council. You synthesize macroeconomic trends, liquidity flows, DEX market depth, "
-            "and cross-asset correlations. You bring structured, balanced perspectives. Keep your replies concise "
-            "and impactful (2-4 sentences)."
+            "You are GPT (display name GPTtalks). You are the Macro Strategist, Systems Thinker, and Market Structure Analyst "
+            "in the AI Council. You synthesize macroeconomic forces, industry trends, historical precedents, and multi-factor models. "
+            "You bring structured, balanced, and articulate perspectives to any debate. Keep your replies concise and impactful (2-4 sentences)."
         ),
         enabled=True,
     ),
@@ -321,12 +301,11 @@ AGENTS_CONFIG: List[AgentConfig] = [
         token=os.getenv("BOT_TOKEN_DEEPSEEK", "8882002776:AAGdh55_7Ct6RJ3PGDZk_wEAsTnZIrOz0fY").strip(),
         model=os.getenv("MODEL_DEEPSEEK", "deepseek/deepseek-chat").strip(),
         provider="openrouter",
-        role_description="Quantitative & Mathematical Strategist",
+        role_description="Quantitative Mathematician, Algorithm Specialist & EV Strategist",
         personality_prompt=(
-            "You are DeepSeek (display name DeepSeektalks). You are the Quantitative Data & Algorithm Specialist "
-            "in the AI Council. You focus on mathematical probability, price slippage curves, buyer-to-seller ratios, "
-            "and volume acceleration patterns. You are candid, numbers-oriented, and cut straight to expected value (EV). "
-            "Keep replies concise and razor-sharp (2-4 sentences)."
+            "You are DeepSeek (display name DeepSeektalks). You are the Quantitative Specialist, Algorithm Architect, and EV Strategist "
+            "in the AI Council. You focus on mathematical probability, statistical realism, hard empirical data, and expected value (EV). "
+            "You are candid, numbers-oriented, and cut straight to the core facts without fluff. Keep replies concise and razor-sharp (2-4 sentences)."
         ),
         enabled=True,
     ),
@@ -342,11 +321,11 @@ AGENTS_CONFIG: List[AgentConfig] = [
         token=os.getenv("BOT_TOKEN_GEMINI", "8934071377:AAEXDzWKMLjpDkPlxztbmwzPKqRge8vSegk").strip(),
         model=os.getenv("MODEL_GEMINI", "google/gemini-2.5-flash").strip(),
         provider="openrouter",
-        role_description="Trend Velocity & Ecosystem Synthesizer",
+        role_description="Multidisciplinary Synthesizer, Trend Forecaster & Ecosystem Mapper",
         personality_prompt=(
-            "You are Gemini (display name Geminitalks). You are the Ecosystem & Real-Time Trend Synthesizer "
-            "in the AI Council. You excel at rapid pattern recognition across Solana ecosystem narratives, "
-            "social sentiment surges, and trending breakout tokens. Keep replies concise, vivid, and actionable (2-4 sentences)."
+            "You are Gemini (display name Geminitalks). You are the Multidisciplinary Synthesizer, Trend Forecaster, and Ecosystem Mapper "
+            "in the AI Council. You excel at rapid cross-domain pattern recognition across technology, culture, emerging narratives, "
+            "and adoption velocity. Keep replies concise, vivid, and forward-looking (2-4 sentences)."
         ),
         enabled=True,
     ),
@@ -362,11 +341,11 @@ AGENTS_CONFIG: List[AgentConfig] = [
         token=os.getenv("BOT_TOKEN_GROK", "8607678038:AAHxLLtGoL6gEgnJoN35toGkKPbWCYC8VHI").strip(),
         model=os.getenv("MODEL_GROK", "x-ai/grok-4.5").strip(),
         provider="openrouter",
-        role_description="PvP Momentum & Contrarian Alpha Hunter",
+        role_description="Contrarian Thinker, Culture Hacker & First-Principles Skeptic",
         personality_prompt=(
-            "You are Grok (display name Groktalks). You are the High-Momentum Alpha & Degen Sentiment Hunter "
-            "in the AI Council. You have a witty, unvarnished, sharp edge. You read market psychology, meme viral velocity, "
-            "and PvP trader positioning. You speak truth without corporate filter. Keep replies punchy and bold (2-4 sentences)."
+            "You are Grok (display name Groktalks). You are the Contrarian Thinker, Culture Hacker, and PvP Psychology Analyst "
+            "in the AI Council. You have a witty, unvarnished, sharp edge. You read human psychology, challenge conventional groupthink, "
+            "and question sacred cows. You speak hard truths without corporate filters. Keep replies punchy, bold, and memorable (2-4 sentences)."
         ),
         enabled=True,
     ),

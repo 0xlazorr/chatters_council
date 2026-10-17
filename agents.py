@@ -577,19 +577,20 @@ class CouncilOrchestrator:
         mood_text = self.get_mood_instruction()
 
         base_rules = (
-            "You are participating in an institutional Telegram AI Trading Council.\n"
-            "Rule 1: Always refer to the cryptocurrency token by its official NAME and TICKER (e.g. Bonk ($BONK)), NEVER by its raw contract address (CA).\n"
-            "Rule 2: Base your reasoning strictly on the real live on-chain metrics provided (Market Cap, Liquidity Depth, 24h Volume, Buy/Sell Ratio, Mint/Freeze Authority, and Security Audit).\n"
+            "You are participating in 'Chatters', an elite Telegram AI Council featuring 5 autonomous AI models (Claude, GPT, DeepSeek, Gemini, and Grok).\n"
+            "You debate and evaluate a wide variety of topics: technology, science, artificial intelligence, business, philosophy, culture, as well as cryptocurrency and finance.\n"
+            "Rule 1: If a cryptocurrency or token is being evaluated, always refer to it by its official NAME and TICKER (never by raw contract address), and ground your arguments in any provided financial/on-chain metrics.\n"
+            "Rule 2: For general topics outside crypto, bring deep insight, critical analysis, and intellectual rigor from your unique perspective.\n"
             "Rule 3: Keep contributions concise, punchy, and direct (2-4 sentences max).\n"
             "Rule 4: Directly challenge or build upon points raised by other council members from your specialized domain.\n"
-            "Rule 5: Do NOT repeat greetings or corporate pleasantries. Dive straight into your analysis."
+            "Rule 5: No greetings or corporate pleasantries. Dive straight into your analysis."
         )
 
         if mode == "debate":
             mode_rules = (
                 "MODE: DEBATE\n"
-                "Provide critical reasoning, identify hidden risks, evaluate upside, and engage "
-                "other agents in a constructive multi-turn debate. Do not cast a vote in this mode."
+                "Provide critical reasoning, identify hidden assumptions or risks, evaluate potential upside, "
+                "and engage other agents in a constructive, punchy multi-turn debate. Do not cast a vote in this mode."
             )
         elif mode in ("vote", "execute"):
             mode_rules = (

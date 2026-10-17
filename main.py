@@ -217,15 +217,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏛️ <b>Multi-Agent AI Council is Online!</b>\n\n"
         f"Welcome, {first_name}. The AI Council allows 5-15 autonomous AI models "
         f"to debate, vote, and execute tasks directly inside this Telegram group chat.\n\n"
-        f"<b>Shorthand Commands (4 Modes):</b>\n"
-        f"• <code>/deb &lt;CA or prompt&gt;</code> - Debate Mode (multi-turn discussion across the 5 AI debaters)\n"
-        f"• <code>/debvote &lt;CA or prompt&gt;</code> (or <code>/dv</code>, <code>/vot</code>) - Debate & Vote Mode (debate + formal consensus vote)\n"
-        f"• <code>/dve &lt;CA or prompt&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute on Solana)\n"
-        f"• <code>/exe &lt;CA or prompt&gt;</code> - Vote & Execute Mode (Silent background evaluation & execution)\n"
-        f"• <code>/mood &lt;type&gt;</code> - Switch mood (e.g. skeptical, aggressive, ruthless)\n"
-        f"• <code>/status</code> - View active council roster & endpoints\n"
-        f"• <code>/command</code> - View all available commands & cheat sheet\n"
-        f"• <code>/help</code> - Detailed operational guide\n\n"
+        f"<b>Shorthand Commands:</b>\n"
+        f"• <code>/deb &lt;topic&gt;</code> - Debate ANY topic (crypto, tech, AI, philosophy, science)\n"
+        f"• <code>/vot &lt;question&gt;</code> - Debate & Vote with formal consensus tally\n"
+        f"• <code>/exe &lt;CA&gt;</code> - Vote & Execute on Solana (Silent background mode)\n"
+        f"• <code>/dve &lt;CA&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute on Solana)\n"
+        f"• <code>/auto on|off</code> - Autonomous breakout token scanner & trader\n"
+        f"• <code>/positions</code> - View open positions & live performance\n"
+        f"• <code>/wallet</code> - View wallet address & SOL balance\n"
+        f"• <code>/vault</code> - View Profit Vault ($25 USDT sweeps)\n"
+        f"• <code>/command</code> - View complete command cheat sheet\n\n"
         f"📍 <i>Current Chat ID:</i> <code>{chat_id}</code>"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
@@ -234,49 +235,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /command, /commands, and /help."""
     text = (
-        "📖 <b>AI COUNCIL ALL AVAILABLE COMMANDS (/command)</b>\n"
+        "📖 <b>CHATTERS AI COUNCIL — SIMPLE COMMAND GUIDE</b>\n"
         "───────────────────────────────\n\n"
-        "<b>🗣️ The 4 Operational Modes:</b>\n"
-        "• <code>/deb &lt;CA or prompt&gt;</code> - <b>Debate Only:</b> Multi-turn debate across all 5 AI models discussing the token using real name, ticker, and on-chain metrics (no vote/trade).\n"
-        "• <code>/debvote &lt;CA or prompt&gt;</code> (or <code>/dv</code>, <code>/vot</code>) - <b>Debate & Vote:</b> Multi-turn debate across models followed by formal consensus vote.\n"
-        "• <code>/dve &lt;CA or prompt&gt;</code> - <b>Debate, Vote & Execute:</b> Multi-turn debate + vote. If consensus passes, auto-executes trade via Market Sniffer on Solana.\n"
-        "• <code>/exe &lt;CA or prompt&gt;</code> - <b>Vote & Execute (Silent Mode):</b> Fast, silent background evaluation & voting. Carries out buy/sell silently without chat spam and posts a single confirmation announcement on consensus!\n\n"
-        "<b>🪙 Manual Contract Address (CA) & Flag Triggers:</b>\n"
-        "You can simply paste a Solana CA or DEX link into the group chat with flags:\n"
-        "• <code>&lt;CA&gt; -dve</code> - Instantly launches Full DVE Pipeline\n"
-        "• <code>&lt;CA&gt; -exe</code> - Instantly launches Silent Vote & Execute\n"
-        "• <code>&lt;CA&gt; -dv</code> or <code>&lt;CA&gt; -vot</code> - Instantly launches Debate & Vote\n"
-        "• <code>&lt;CA&gt; -deb</code> - Instantly launches Debate Only\n"
-        "• <code>&lt;CA&gt; -a 0.50</code> - Selects investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n"
-        "• <code>&lt;CA&gt; -hold</code> - Sets exit strategy to Hold Indefinitely (Diamond Hands)\n"
-        "• <code>&lt;CA&gt; -tp 75</code> - Overrides Take-Profit target to +75%\n"
-        "• <code>&lt;CA&gt; -m ruthless</code> - Overrides mood for this evaluation\n"
-        "<i>💡 Tip: Posting a bare CA with NO flags brings up the live Token Dossier card (Name, Symbol, Mcap, Liq, Vol, Top 10 Holders) with 1-click preset buttons!</i>\n\n"
-        "<b>🤖 Autonomous Autopilot Stream Trading:</b>\n"
-        "• <code>/auto on</code> - Starts autonomous loop (screens breakout tokens, debates, votes & trades)\n"
-        "• <code>/auto off</code> - Halts autonomous loop\n"
-        "• <code>/auto status</code> - Live statistics (cycles, tokens evaluated, approvals)\n"
-        "<i>🛡️ Safety Guard: Autopilot automatically halts if wallet SOL drops below minimum!</i>\n\n"
-        "<b>📈 Positions & Automated Profit-Taking:</b>\n"
-        "• <code>/positions</code> - View open positions, entry prices, and live PnL %\n"
-        "• <code>/exitmode [auto|hold]</code> - Switch Council exit strategy: Auto-Exit (+50% TP) vs Hold Indefinitely\n"
-        "• <code>/tp &lt;pct&gt;</code> - Customize Take-Profit target percentage (e.g. <code>/tp 50</code>, <code>/tp 100</code>)\n"
-        "• <code>/sell &lt;CA&gt; [pct]</code> - Manually exit a token position (e.g. <code>/sell &lt;CA&gt; 100</code>)\n"
-        "<i>🎯 Auto-Exits: Monitored 24/7 for Take-Profit (+50%), Trailing Stop (15%), and Stop-Loss (-25%)!</i>\n\n"
-        "<b>🏦 Profit Vault (USDT Sweeper):</b>\n"
-        "• <code>/vault</code> - View total USDT harvested & interactive threshold buttons\n"
-        "• <code>/vault &lt;amount&gt;</code> - Set custom threshold (e.g. <code>/vault 50</code> or <code>/vault 25</code>)\n"
-        "• <code>/vault reset</code> - Sync baseline to current wallet SOL balance\n"
-        "<i>🔒 One-Way Ratchet: Profits are auto-swept into USDT. The bot can NEVER convert USDT to SOL!</i>\n\n"
-        "<b>💳 Treasury, Wallet & Investment Options:</b>\n"
-        "• <code>/wallet</code> - View Market Sniffer execution wallet pubkey & live SOL balance\n"
-        "• <code>/invest [amount]</code> - View or change default investment preset (0.05, 0.10, 0.25, 0.50, 1.00 SOL)\n\n"
-        "<b>🎭 Personality & Moods:</b>\n"
-        "• <code>/mood &lt;type&gt;</code> (analytical, skeptical, aggressive, conservative, ruthless, contrarian)\n\n"
-        "<b>⚙️ Management & Utility:</b>\n"
-        "• <code>/status</code> - Display active models, autopilot state, and endpoints\n"
-        "• <code>/setnames</code> - Re-sync bot display names to {AI}talks pattern\n"
-        "• <code>/cancel</code> - Abort any active council session or autopilot"
+        "<b>🗣️ The 4 Council Modes:</b>\n"
+        "• <code>/deb &lt;topic&gt;</code> - <b>Debate Any Topic:</b> The 5 AI models debate any subject (technology, AI, science, philosophy, or crypto).\n"
+        "• <code>/vot &lt;question&gt;</code> - <b>Debate & Vote:</b> The models debate and cast formal majority consensus votes.\n"
+        "• <code>/exe &lt;CA&gt;</code> - <b>Vote & Execute (Silent):</b> Fast background vote; buys on Solana if consensus passes.\n"
+        "• <code>/dve &lt;CA&gt;</code> - <b>Full DVE Pipeline:</b> Verbal debate + vote + on-chain trade execution on consensus.\n\n"
+        "<b>🪙 Solana Token Actions:</b>\n"
+        "• Paste any Solana CA or DEX link into the group to get a live on-chain briefing card with 1-click execution buttons!\n"
+        "• Or use shorthand flags: <code>&lt;CA&gt; -exe</code> or <code>&lt;CA&gt; -dv</code> or <code>&lt;CA&gt; -deb</code>\n\n"
+        "<b>🤖 Autonomous Trading & Profit Security:</b>\n"
+        "• <code>/auto on</code> | <code>/auto off</code> - Start/stop background breakout scanner\n"
+        "• <code>/positions</code> - View open token positions & live performance\n"
+        "• <code>/sell &lt;CA&gt;</code> - Manually exit a token position\n"
+        "• <code>/vault</code> - View profit vault (sweeps $25 profit to USDT so profits are never burned)\n"
+        "• <code>/wallet</code> - View Market Sniffer execution wallet & SOL balance\n"
+        "• <code>/invest [amount]</code> - Set default trade size (e.g. <code>/invest 0.25</code>)\n"
+        "• <code>/cancel</code> - Stop any active session or autopilot"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -766,16 +742,30 @@ async def execute_council_session(
             user_context=prompt,
         )
     else:
-        tok_name = symbol or "Asset"
-        tok_symbol = symbol or "TOKEN"
+        tok_name = symbol or ""
+        tok_symbol = symbol or ""
         dex = "Solana DEX"
-        target_display = prompt[:30]
+        target_display = prompt[:35]
         enriched_prompt = prompt
 
     is_busy = True
     active_task_name = f"{mode.upper()}: {target_display}"
 
     try:
+        # Check if user invoked execution mode without a Solana CA
+        if mode in ("dve", "execute", "exe") and not mint:
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=(
+                        "⚠️ <b>Execution mode requires a Solana Contract Address (CA).</b>\n\n"
+                        "• For general debates across the AI models: <code>/deb &lt;topic&gt;</code>\n"
+                        "• For debates with a formal majority vote: <code>/vot &lt;question&gt;</code>"
+                    ),
+                )
+            return False
+
         # -------------------------------------------------------------
         # MODE 1: DEBATE ONLY (/deb)
         # -------------------------------------------------------------
@@ -792,20 +782,19 @@ async def execute_council_session(
                             f"🎙️ <b>AI COUNCIL DEBATE COMMENCING</b>\n"
                             f"───────────────────────────────\n"
                             f"📌 <b>Topic:</b> <i>{html.escape(prompt)}</i>\n"
-                            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-                            f"👥 <b>Active Debaters:</b> {len(council.agents_config)}\n"
+                            f"👥 <b>Debaters:</b> Claude, GPT, DeepSeek, Gemini, Grok\n"
                             f"───────────────────────────────"
                         ),
                     )
             success = await council.run_debate(prompt=enriched_prompt, chat_id=chat_id, reply_to_id=reply_to_id, silent=False)
             if success and lead_bot:
-                safe_name = html.escape(tok_name)
-                safe_sym = html.escape(tok_symbol)
-                await safe_send_message(
-                    bot=lead_bot,
-                    chat_id=chat_id,
-                    text=f"🏁 <b>Debate Concluded on {safe_name} (${safe_sym}).</b> To vote, use <code>/vot {mint or prompt}</code> or <code>/exe</code>.",
-                )
+                if dossier:
+                    safe_name = html.escape(tok_name)
+                    safe_sym = html.escape(tok_symbol)
+                    concl_msg = f"🏁 <b>Debate Concluded on {safe_name} (${safe_sym}).</b> To vote, use <code>/vot {mint}</code> or <code>/exe</code>."
+                else:
+                    concl_msg = f"🏁 <b>Council Debate Concluded.</b> To cast formal votes, use <code>/vot {html.escape(prompt)}</code>."
+                await safe_send_message(bot=lead_bot, chat_id=chat_id, text=concl_msg)
             return success
 
         # -------------------------------------------------------------
@@ -821,11 +810,11 @@ async def execute_council_session(
                         bot=lead_bot,
                         chat_id=chat_id,
                         text=(
-                            f"🗳️ <b>DEBATE & VOTE SESSION: {html.escape(target_display)}</b>\n"
+                            f"🗳️ <b>COUNCIL DEBATE & VOTE</b>\n"
                             f"───────────────────────────────\n"
-                            f"📌 <b>Proposition:</b> <i>{html.escape(prompt)}</i>\n"
-                            f"🎭 <b>Mood:</b> <code>{council.current_mood.upper()}</code>\n"
-                            f"⚖️ <b>Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}% Majority</code>\n"
+                            f"📌 <b>Topic:</b> <i>{html.escape(prompt)}</i>\n"
+                            f"👥 <b>Voters:</b> Claude, GPT, DeepSeek, Gemini, Grok\n"
+                            f"⚖️ <b>Consensus:</b> <code>50% Majority</code>\n"
                             f"───────────────────────────────"
                         ),
                     )
@@ -1079,48 +1068,25 @@ def build_ca_keyboard(
     strategy: Optional[str] = None,
 ) -> InlineKeyboardMarkup:
     """
-    Builds the interactive inline keyboard with explicit preset investment amount options
-    and exit strategy toggle (Auto-Exit +50% vs Hold Indefinitely).
+    Builds a clean, simple 4-button inline keyboard for token actions:
+    Row 1: Buy Execution (Vote & Buy | Full DVE)
+    Row 2: Discussion (Debate & Vote | Debate Only)
     """
     if selected_amount is None:
         selected_amount = config.DEFAULT_TRADE_AMOUNT_SOL
     selected_amount = config.validate_investment_amount(selected_amount)
 
-    if strategy is None:
-        strategy = config.DEFAULT_EXIT_STRATEGY
-    strat_code = "h" if strategy.upper() == "HOLD_INDEFINITE" else "a"
+    strat_code = "h" if strategy and strategy.upper() == "HOLD_INDEFINITE" else "a"
 
-    # Row 1: Strict preset investment options
-    amt_row = []
-    for opt in config.ALLOWED_INVESTMENT_OPTIONS:
-        label = f"{opt:.2f} SOL ✅" if abs(opt - selected_amount) < 0.001 else f"{opt:.2f} SOL"
-        amt_row.append(InlineKeyboardButton(label, callback_data=f"amt:{mint}:{opt:.2f}:{strat_code}"))
-
-    # Row 2: Exit Strategy Selection
-    auto_label = f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%) ✅" if strat_code == "a" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}%)"
-    hold_label = "💎 Hold Indefinite ✅" if strat_code == "h" else "💎 Hold Indefinite"
-    strat_row = [
-        InlineKeyboardButton(auto_label, callback_data=f"strat:{mint}:{selected_amount:.2f}:a"),
-        InlineKeyboardButton(hold_label, callback_data=f"strat:{mint}:{selected_amount:.2f}:h"),
-    ]
-
-    # Row 3: Council execution actions with chosen amount and strategy
-    action_row = [
+    row1 = [
+        InlineKeyboardButton(f"⚡ Vote & Buy ({selected_amount:.2f} SOL)", callback_data=f"exe:{mint}:{selected_amount:.2f}:{strat_code}"),
         InlineKeyboardButton(f"🚀 Full DVE ({selected_amount:.2f} SOL)", callback_data=f"dve:{mint}:{selected_amount:.2f}:{strat_code}"),
-        InlineKeyboardButton(f"⚡ Vote & Exe ({selected_amount:.2f} SOL)", callback_data=f"exe:{mint}:{selected_amount:.2f}:{strat_code}"),
     ]
-
-    # Row 4: Deliberation without execution
-    delib_row = [
+    row2 = [
         InlineKeyboardButton("🗳️ Debate & Vote", callback_data=f"dv:{mint}:{selected_amount:.2f}:{strat_code}"),
         InlineKeyboardButton("🎙️ Debate Only", callback_data=f"deb:{mint}:{selected_amount:.2f}:{strat_code}"),
     ]
-
-    # Row 5: Autopilot toggle
-    ap_label = "🛑 Stop Autopilot" if autopilot.is_running else "🤖 Start Autopilot"
-    ap_row = [InlineKeyboardButton(ap_label, callback_data="auto:toggle")]
-
-    return InlineKeyboardMarkup([amt_row, strat_row, action_row, delib_row, ap_row])
+    return InlineKeyboardMarkup([row1, row2])
 
 
 def build_invest_keyboard() -> InlineKeyboardMarkup:
@@ -1229,8 +1195,36 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not mint and update.message.reply_to_message and update.message.reply_to_message.text:
         mint, action, amount, symbol = SignalExtractor.extract(update.message.reply_to_message.text)
 
-    # If still no CA, ignore silently (so regular chit-chat in the group is untouched)
+    # If still no CA, check if the user is addressing the council or mentioning any bot
     if not mint:
+        bot_handles = (
+            "@claudetalkbbot", "@gpttalkbbot", "@deepseektalkbbot",
+            "@geminitalkbbot", "@groktalkbbot", "@council", "council:", "chatters:"
+        )
+        is_addressed = any(h in text.lower() for h in bot_handles)
+        is_reply_to_bot = bool(
+            update.message.reply_to_message
+            and update.message.reply_to_message.from_user
+            and update.message.reply_to_message.from_user.is_bot
+        )
+        if is_addressed or is_reply_to_bot:
+            auth, reason = is_authorized_admin(update)
+            if not auth:
+                await update.message.reply_text(f"⛔ {reason}")
+                return
+
+            clean_text = text
+            for h in ("@claudetalkbbot", "@gpttalkbbot", "@deepseektalkbbot", "@geminitalkbbot", "@groktalkbbot", "@council"):
+                clean_text = re.sub(re.escape(h), "", clean_text, flags=re.IGNORECASE).strip()
+            clean_text = re.sub(r"^(?:council|chatters):\s*", "", clean_text, flags=re.IGNORECASE).strip()
+
+            if clean_text:
+                await execute_council_session(
+                    chat_id=chat_id,
+                    prompt=clean_text,
+                    mode="debate",
+                    reply_to_id=update.message.message_id,
+                )
         return
 
     # 2. Check authorization
@@ -1310,23 +1304,19 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
 
-    # 6. If NO flag attached (bare CA), present rich Token Dossier card with interactive preset buttons!
+    # 6. If NO flag attached (bare CA), present rich Token Dossier card with simple 1-click buttons!
     strat_to_use = exit_strategy or config.DEFAULT_EXIT_STRATEGY
     reply_markup = build_ca_keyboard(mint=mint, selected_amount=amount, strategy=strat_to_use)
 
     dossier = await telemetry.fetch_token_dossier(mint)
     if dossier:
         card_text = telemetry.format_telegram_token_card(dossier, action="BUY", amount_sol=amount)
-        card_text += "\n\n<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
     else:
         dex_url = f"https://dexscreener.com/solana/{mint}"
-        strat_desc = "💎 Hold Indefinitely (Diamond Hands)" if strat_to_use == "HOLD_INDEFINITE" else f"🎯 Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}% TP / -25% SL)"
         card_text = (
             f"🪙 <b>Solana Token Detected:</b> <code>{mint}</code>\n"
             f"📊 <a href='{dex_url}'>View DexScreener Chart</a>\n"
-            f"💰 <b>Selected Investment:</b> <code>{amount:.2f} SOL</code>\n"
-            f"🛡️ <b>Exit Strategy:</b> <code>{strat_desc}</code>\n\n"
-            f"<i>Select an investment preset and exit strategy, then trigger an action below:</i>"
+            f"💰 <b>Default Allocation:</b> <code>{amount:.2f} SOL</code>\n"
         )
 
     await update.message.reply_text(
@@ -1578,24 +1568,19 @@ async def post_init(application: Application):
 
     # Register bot commands menu in Telegram UI
     bot_commands = [
-        BotCommand("command", "Display full AI Council command cheatsheet"),
-        BotCommand("help", "Detailed system guide and operational modes"),
+        BotCommand("command", "Display simple AI Council command guide"),
+        BotCommand("deb", "Debate ANY topic (crypto, tech, AI, philosophy)"),
+        BotCommand("vot", "Debate & Vote on any question or proposition"),
+        BotCommand("exe", "Vote & Execute trade on Solana (Silent mode)"),
         BotCommand("dve", "Full Pipeline: Debate ➔ Vote ➔ Execute on Solana"),
-        BotCommand("exe", "Vote & Execute (Silent background evaluation & execution)"),
-        BotCommand("debvote", "Debate & Vote: verbal debate then formal consensus vote"),
-        BotCommand("vot", "Debate & Vote: verbal debate then formal consensus vote"),
-        BotCommand("deb", "Multi-turn debate across the 5 AI council debaters"),
-        BotCommand("auto", "Manage Autonomous Autopilot stream trading (on|off|status)"),
-        BotCommand("positions", "View open positions, entry prices, and live PnL %"),
-        BotCommand("exitmode", "Toggle exit strategy: Auto-Exit (+50%) vs Hold Indefinitely"),
-        BotCommand("tp", "Customize Take-Profit target percentage (e.g. /tp 50)"),
-        BotCommand("vault", "View or customize Profit Vault sweep threshold (/vault 50)"),
-        BotCommand("sell", "Manually sell token position (/sell <CA> [pct])"),
-        BotCommand("invest", "View or change default trade size (0.05 - 1.00 SOL)"),
-        BotCommand("wallet", "View Market Sniffer execution wallet & SOL balance"),
-        BotCommand("mood", "Change council personality (skeptical, ruthless, etc.)"),
+        BotCommand("auto", "Autonomous stream trading (on / off / status)"),
+        BotCommand("positions", "View open token positions & live performance"),
+        BotCommand("sell", "Manually sell token position (/sell <CA>)"),
+        BotCommand("vault", "Profit Vault status & customizable threshold"),
+        BotCommand("wallet", "View Solana execution wallet & SOL balance"),
+        BotCommand("invest", "Change default trade size (/invest 0.25)"),
         BotCommand("status", "View active models, autopilot state & endpoints"),
-        BotCommand("cancel", "Abort active deliberation or halt autopilot"),
+        BotCommand("cancel", "Stop active council session or autopilot"),
     ]
     try:
         await application.bot.set_my_commands(bot_commands)
