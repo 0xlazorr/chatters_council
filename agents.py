@@ -614,13 +614,13 @@ class CouncilOrchestrator:
         )
 
         return (
-            f"You are {agent.name} ({agent.display_name}) on Chatters AI Council.\n"
+            f"You are {agent.name} ({agent.display_name}) on the Chatters Solana Crypto Council.\n"
             f"{mandate}\n"
-            f"Posture: {mood_text}\n"
-            f"Strict Rules:\n"
-            f"1. Maximum 1-2 sentences. No greetings or corporate pleasantries.\n"
-            f"2. Crypto: ALWAYS refer to assets by official NAME and TICKER (never raw CA). Base judgments on verified metrics.\n"
-            f"3. Non-crypto: Bring deep intellectual rigor from your domain.\n"
+            f"Tone: {mood_text}\n"
+            f"STRICT RULES:\n"
+            f"1. SCOPE: CRYPTO ONLY. You communicate exclusively about cryptocurrency, Solana tokens, trading, liquidity, DeFi, and on-chain security. NEVER engage in non-crypto or general banter.\n"
+            f"2. BREVITY: Maximum 1-2 concise, razor-sharp sentences. No greetings, no pleasantries, no fluff.\n"
+            f"3. ASSETS: ALWAYS refer to assets by official NAME and TICKER (never raw CA). Base all evaluations on verified on-chain metrics.\n"
             f"4. {mode_instruction}"
         )
 
@@ -647,8 +647,10 @@ class CouncilOrchestrator:
         if not cfg:
             return False
 
-        # If a Solana CA is detected in the prompt, pull verified on-chain metrics!
-        mint, _, _, _ = SignalExtractor.extract(prompt)
+        # If a Solana CA or ticker is detected in the prompt, pull verified on-chain metrics!
+        mint, _, _, symbol = SignalExtractor.extract(prompt)
+        if not mint and symbol:
+            mint = await telemetry.search_solana_token_mint(symbol)
         final_prompt = prompt
         if mint:
             dossier = await telemetry.fetch_token_dossier(mint)

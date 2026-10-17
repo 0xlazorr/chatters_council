@@ -12,23 +12,66 @@ import json
 import logging
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("multi_agent_council.telemetry")
 
 
-async def fetch_token_dossier(mint: str) -> Optional[Dict[str, Any]]:
+async def search_solana_token_mint(query: str) -> Optional[str]:
     """
-    Fetches comprehensive on-chain token data from DexScreener and RugCheck APIs in parallel:
-    1. DexScreener: Token Name, Symbol, Price USD, Market Cap / FDV, Liquidity, 24h/1h Volume,
-       Buy/Sell transaction counts, 1h/24h Price Change, DEX Pair platform.
-    2. RugCheck: Mint Authority (revoked/active), Freeze Authority (revoked/active),
-       Top 10 holders percentage, overall security risk score, and identified warnings.
+    Searches DexScreener for a Solana token symbol or ticker (e.g. BONK, $WIF, POPCAT).
+    Returns the verified mint address of the highest-liquidity Solana pair.
     """
-    if not mint or len(mint) < 32:
+    clean_q = query.strip().replace("$", "").upper()
+    if not clean_q or len(clean_q) < 2:
         return None
 
-    clean_mint = mint.strip()
+    loop = asyncio.get_running_loop()
+
+    def _search() -> Optional[str]:
+        url = f"https://api.dexscreener.com/latest/dex/search?q={urllib.parse.quote(clean_q)}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ChattersCouncil/2.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+                pairs = data.get("pairs") or []
+                sol_pairs = [
+                    p for p in pairs
+                    if (p.get("chainId") or "").lower() == "solana" and (p.get("baseToken") or {}).get("address")
+                ]
+                if not sol_pairs:
+                    return None
+                best = max(sol_pairs, key=lambda p: float((p.get("liquidity") or {}).get("usd") or 0.0))
+                return (best.get("baseToken") or {}).get("address")
+        except Exception as e:
+            logger.debug(f"DexScreener search error for '{clean_q}': {e}")
+            return None
+
+    return await loop.run_in_executor(None, _search)
+
+
+async def fetch_token_dossier(identifier: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetches comprehensive on-chain token data from DexScreener and RugCheck APIs in parallel:
+    1. Supports raw 32-44 char Solana Contract Addresses (CAs).
+    2. Supports ticker symbols (e.g. $BONK, WIF, POPCAT) by auto-resolving to the highest liquidity Solana pair.
+    3. Retrieves Price USD, Market Cap/FDV, Liquidity, 24h/1h Volume, Buy/Sell counts, Price Changes,
+       Mint Authority (revoked/active), Freeze Authority (revoked/active), Top 10% Holders, and Security Score.
+    """
+    if not identifier:
+        return None
+
+    clean_id = identifier.strip().replace("$", "")
+    if len(clean_id) < 32:
+        resolved_mint = await search_solana_token_mint(clean_id)
+        if not resolved_mint:
+            logger.warning(f"Could not resolve Solana mint for ticker/name '{clean_id}'")
+            return None
+        clean_mint = resolved_mint
+    else:
+        clean_mint = clean_id
+
     loop = asyncio.get_running_loop()
 
     def _fetch_dex() -> Optional[Dict[str, Any]]:

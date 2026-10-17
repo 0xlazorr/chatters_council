@@ -65,6 +65,28 @@ council: Optional[CouncilOrchestrator] = None
 is_busy: bool = False
 active_task_name: str = ""
 
+CRYPTO_KEYWORDS = {
+    "sol", "solana", "crypto", "token", "coin", "ca", "mint", "contract", "pump", "pump.fun",
+    "raydium", "dex", "liquidity", "mcap", "market cap", "fdv", "volume", "airdrop", "yield",
+    "staking", "swap", "buy", "sell", "trading", "trade", "degen", "rug", "honeypot", "wallet",
+    "bull", "bullish", "bear", "bearish", "ath", "dip", "slippage", "gas", "fees", "whale",
+    "orderbook", "vault", "profit", "positions", "hold", "exit", "tp", "sl", "stop loss",
+    "take profit", "sniffer", "btc", "eth", "usdt", "usdc", "memecoin", "altcoin", "defi",
+    "chart", "breakout", "dump", "orca", "meteora", "jupiter", "jup", "wif", "bonk",
+    "popcat", "bome", "fartcoin", "act", "pnut", "goat", "moodeng", "invest", "balance"
+}
+
+
+def is_crypto_related(text: str) -> bool:
+    """Checks if a text message is strictly related to cryptocurrency, tokens, or trading."""
+    if not text:
+        return False
+    lower = text.lower()
+    if re.search(r"\$[A-Za-z0-9]{2,10}\b", text):
+        return True
+    words = set(re.findall(r"\b[a-zA-Z0-9_\.]+\b", lower))
+    return bool(words.intersection(CRYPTO_KEYWORDS))
+
 
 # =============================================================================
 # 1. STARTUP UTILITY: SETMYNAME & BOT DISCOVERY
@@ -211,17 +233,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /start command."""
     chat_id = check_and_record_chat_id(update)
     user = update.effective_user
-    first_name = html.escape(user.first_name) if user else "Admin"
+    first_name = html.escape(user.first_name) if user else "Trader"
 
     text = (
-        f"🏛️ <b>Multi-Agent AI Council is Online!</b>\n\n"
-        f"Welcome, {first_name}. The AI Council allows 5-15 autonomous AI models "
-        f"to debate, vote, and execute tasks directly inside this Telegram group chat.\n\n"
+        f"🏛️ <b>Chatters Solana Crypto Council is Online!</b>\n\n"
+        f"Welcome, {first_name}. The AI Council features 5 autonomous models "
+        f"dedicated strictly to Solana token intelligence, on-chain risk audits, and trade execution.\n\n"
         f"<b>Shorthand Commands:</b>\n"
-        f"• <code>/deb &lt;topic&gt;</code> - Debate ANY topic (crypto, tech, AI, philosophy, science)\n"
-        f"• <code>/vot &lt;question&gt;</code> - Debate & Vote with formal consensus tally\n"
-        f"• <code>/exe &lt;CA&gt;</code> - Vote & Execute on Solana (Silent background mode)\n"
-        f"• <code>/dve &lt;CA&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute on Solana)\n"
+        f"• <code>/deb &lt;CA, $ticker, or topic&gt;</code> - Debate crypto tokens, market depth & liquidity\n"
+        f"• <code>/vot &lt;CA, $ticker, or trade&gt;</code> - Debate & Vote on crypto trades with formal consensus\n"
+        f"• <code>/exe &lt;CA or $ticker&gt;</code> - Silent background vote & buy on Solana\n"
+        f"• <code>/dve &lt;CA or $ticker&gt;</code> - Full Pipeline (Debate ➔ Vote ➔ Execute on Solana)\n"
         f"• <code>/auto on|off</code> - Autonomous breakout token scanner & trader\n"
         f"• <code>/positions</code> - View open positions & live performance\n"
         f"• <code>/wallet</code> - View wallet address & SOL balance\n"
@@ -235,15 +257,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles /command, /commands, and /help."""
     text = (
-        "📖 <b>CHATTERS AI COUNCIL — SIMPLE COMMAND GUIDE</b>\n"
+        "📖 <b>CHATTERS CRYPTO COUNCIL — COMMAND GUIDE</b>\n"
         "───────────────────────────────\n\n"
-        "<b>🗣️ The 4 Council Modes:</b>\n"
-        "• <code>/deb &lt;topic&gt;</code> - <b>Debate Any Topic:</b> The 5 AI models debate any subject (technology, AI, science, philosophy, or crypto).\n"
-        "• <code>/vot &lt;question&gt;</code> - <b>Debate & Vote:</b> The models debate and cast formal majority consensus votes.\n"
-        "• <code>/exe &lt;CA&gt;</code> - <b>Vote & Execute (Silent):</b> Fast background vote; buys on Solana if consensus passes.\n"
-        "• <code>/dve &lt;CA&gt;</code> - <b>Full DVE Pipeline:</b> Verbal debate + vote + on-chain trade execution on consensus.\n\n"
+        "<b>🗣️ Council Modes (Strictly Crypto):</b>\n"
+        "• <code>/deb &lt;CA, $ticker, or crypto topic&gt;</code> - <b>Crypto Debate:</b> The 5 models debate on-chain metrics, liquidity depth, and risks.\n"
+        "• <code>/vot &lt;CA, $ticker, or trade&gt;</code> - <b>Debate & Vote:</b> The models debate and cast majority consensus votes.\n"
+        "• <code>/exe &lt;CA or $ticker&gt;</code> - <b>Vote & Execute (Silent):</b> Fast background vote; buys on Solana if consensus passes.\n"
+        "• <code>/dve &lt;CA or $ticker&gt;</code> - <b>Full DVE Pipeline:</b> Verbal debate + vote + on-chain trade execution on consensus.\n\n"
         "<b>🪙 Solana Token Actions:</b>\n"
         "• Paste any Solana CA or DEX link into the group to get a live on-chain briefing card with 1-click execution buttons!\n"
+        "• Type <code>$TICKER</code> (e.g. <code>$BONK</code>, <code>$WIF</code>) to automatically resolve on-chain metrics.\n"
         "• Or use shorthand flags: <code>&lt;CA&gt; -exe</code> or <code>&lt;CA&gt; -dv</code> or <code>&lt;CA&gt; -deb</code>\n\n"
         "<b>🤖 Autonomous Trading & Profit Security:</b>\n"
         "• <code>/auto</code> - View Autonomous dashboard & interactive frequency buttons\n"
@@ -787,9 +810,22 @@ async def execute_council_session(
     mint, action, amount, symbol = SignalExtractor.extract(prompt)
     if mint_override:
         mint = mint_override
+
+    # If no mint but $TICKER or token symbol detected, auto-resolve via DexScreener
+    if not mint and symbol:
+        mint = await telemetry.search_solana_token_mint(symbol)
+    if not mint and mode in ("dve", "execute", "exe", "debate_vote", "debvote", "dv"):
+        first_token = prompt.strip().split()[0].replace("$", "").upper()
+        if 2 <= len(first_token) <= 10 and first_token.isalnum() and first_token not in ("BUY", "SELL", "WHAT", "HOW", "WHY"):
+            resolved = await telemetry.search_solana_token_mint(first_token)
+            if resolved:
+                mint = resolved
+
     dossier = None
     if mint:
         dossier = await telemetry.fetch_token_dossier(mint)
+        if dossier and dossier.get("mint"):
+            mint = dossier["mint"]
 
     if dossier:
         tok_name = dossier.get("name", "Token")
@@ -813,16 +849,31 @@ async def execute_council_session(
     active_task_name = f"{mode.upper()}: {target_display}"
 
     try:
-        # Check if user invoked execution mode without a Solana CA
+        # Strictly crypto-only council enforcement
+        if not mint and not dossier and not is_crypto_related(prompt):
+            if lead_bot:
+                await safe_send_message(
+                    bot=lead_bot,
+                    chat_id=chat_id,
+                    text=(
+                        "🏛️ <b>Chatters Council Directive: Strictly Crypto Scope</b>\n\n"
+                        "This council operates exclusively on cryptocurrency, Solana tokens, DEX liquidity, and trade execution.\n"
+                        "Please provide a Solana CA, $ticker, or crypto trading question."
+                    ),
+                )
+            return False
+
+        # Check if user invoked execution mode without a Solana CA or resolvable ticker
         if mode in ("dve", "execute", "exe") and not mint:
             if lead_bot:
                 await safe_send_message(
                     bot=lead_bot,
                     chat_id=chat_id,
                     text=(
-                        "⚠️ <b>Execution mode requires a Solana Contract Address (CA).</b>\n\n"
-                        "• For general debates across the AI models: <code>/deb &lt;topic&gt;</code>\n"
-                        "• For debates with a formal majority vote: <code>/vot &lt;question&gt;</code>"
+                        "⚠️ <b>Execution mode requires a Solana Contract Address (CA) or $ticker.</b>\n\n"
+                        "• Examples: <code>/exe $BONK</code> or <code>/exe &lt;Solana CA&gt;</code>\n"
+                        "• For crypto token debates: <code>/deb &lt;$ticker or CA&gt;</code>\n"
+                        "• For debates with a formal majority vote: <code>/vot &lt;$ticker or CA&gt;</code>"
                     ),
                 )
             return False
@@ -1048,8 +1099,10 @@ async def deb_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = extract_prompt(update, context)
     reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
     mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not mint and symbol:
+        mint = await telemetry.search_solana_token_mint(symbol)
     if not prompt and not mint:
-        await update.message.reply_text("🗣️ <b>Usage:</b> <code>/deb &lt;prompt or CA&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("🗣️ <b>Usage:</b> <code>/deb &lt;CA, $ticker, or crypto topic&gt;</code>", parse_mode=ParseMode.HTML)
         return
     full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
@@ -1071,8 +1124,10 @@ async def vot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = extract_prompt(update, context)
     reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
     mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not mint and symbol:
+        mint = await telemetry.search_solana_token_mint(symbol)
     if not prompt and not mint:
-        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/vot &lt;trade proposition or CA&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/vot &lt;CA, $ticker, or trade proposition&gt;</code>", parse_mode=ParseMode.HTML)
         return
     full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
@@ -1094,8 +1149,10 @@ async def debvote_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = extract_prompt(update, context)
     reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
     mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not mint and symbol:
+        mint = await telemetry.search_solana_token_mint(symbol)
     if not prompt and not mint:
-        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/debvote &lt;trade proposition or CA&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("🗳️ <b>Usage:</b> <code>/debvote &lt;CA, $ticker, or trade proposition&gt;</code>", parse_mode=ParseMode.HTML)
         return
     full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
@@ -1117,8 +1174,10 @@ async def exe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = extract_prompt(update, context)
     reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
     mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not mint and symbol:
+        mint = await telemetry.search_solana_token_mint(symbol)
     if not prompt and not mint:
-        await update.message.reply_text("⚡ <b>Usage:</b> <code>/exe &lt;trade proposition with Solana CA&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("⚡ <b>Usage:</b> <code>/exe &lt;CA or $ticker&gt;</code>", parse_mode=ParseMode.HTML)
         return
     full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
@@ -1140,8 +1199,10 @@ async def dve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = extract_prompt(update, context)
     reply_text = update.message.reply_to_message.text if update.message.reply_to_message and update.message.reply_to_message.text else ""
     mint, action, amount, symbol = SignalExtractor.extract(prompt, reply_text=reply_text)
+    if not mint and symbol:
+        mint = await telemetry.search_solana_token_mint(symbol)
     if not prompt and not mint:
-        await update.message.reply_text("🚀 <b>Usage:</b> <code>/dve &lt;trade proposition with Solana CA&gt;</code>", parse_mode=ParseMode.HTML)
+        await update.message.reply_text("🚀 <b>Usage:</b> <code>/dve &lt;CA or $ticker&gt;</code>", parse_mode=ParseMode.HTML)
         return
     full_prompt = prompt or f"{action} {amount:.2f} SOL of token {mint}"
     chat_id = check_and_record_chat_id(update)
@@ -1341,8 +1402,24 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not mint and update.message.reply_to_message and update.message.reply_to_message.text:
         mint, action, amount, symbol = SignalExtractor.extract(update.message.reply_to_message.text)
 
+    # If no mint but $TICKER detected, auto-resolve Solana mint via DexScreener
+    if not mint and symbol:
+        resolved_mint = await telemetry.search_solana_token_mint(symbol)
+        if resolved_mint:
+            mint = resolved_mint
+
+    # If still no mint, check if text is a single token ticker
+    if not mint:
+        words = text.strip().split()
+        if len(words) == 1 and 2 <= len(words[0]) <= 10 and words[0].isalnum():
+            candidate = words[0].replace("$", "").upper()
+            if candidate in ("BONK", "WIF", "POPCAT", "BOME", "FARTCOIN", "ACT", "PNUT", "GOAT", "MOODENG", "JUP", "RAY"):
+                resolved_mint = await telemetry.search_solana_token_mint(candidate)
+                if resolved_mint:
+                    mint = resolved_mint
+
     # -----------------------------------------------------------------
-    # REGULAR TALKING CONVERSATIONS (NO CA DETECTED)
+    # REGULAR CONVERSATIONS (NO CA DETECTED - STRICTLY CRYPTO SCOPE)
     # -----------------------------------------------------------------
     if not mint:
         is_private = bool(update.effective_chat and update.effective_chat.type == "private")
@@ -1382,9 +1459,26 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
         if not clean_text:
             return
 
-        # Case A: Private DM or addressed to a specific bot -> direct, conversational reply!
+        crypto_valid = is_crypto_related(clean_text)
+
+        # Case A: Private DM or addressed to a specific bot
         if is_private or target_agent:
             agent_to_respond = target_agent or "Claude"
+            if not crypto_valid:
+                lead_bot = council.broadcaster.get_bot(agent_to_respond) if council else None
+                if lead_bot:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text=(
+                            f"🏛️ <b>Chatters Council ({agent_to_respond}):</b>\n"
+                            f"My analysis is strictly reserved for cryptocurrency, Solana tokens, liquidity, and on-chain security. "
+                            f"Please provide a token CA, $ticker, or crypto trading question."
+                        ),
+                        reply_to_id=update.message.message_id,
+                    )
+                return
+
             await council.run_single_agent_reply(
                 agent_name=agent_to_respond,
                 prompt=clean_text,
@@ -1393,18 +1487,26 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        # Case B: In group chat, if addressed to council or question/discussion topic -> council converses!
-        council_triggers = (
-            "@council", "council", "chatters", "everyone", "guys", "bots", "all"
-        )
+        # Case B: In group chat, if addressed explicitly to council
+        council_triggers = ("@council", "council:", "chatters:", "@chatters")
         is_council_addressed = any(t in lower_text for t in council_triggers)
-        is_question_or_topic = (
-            "?" in text
-            or len(clean_text.split()) >= 3
-            or any(lower_text.startswith(w) for w in ("what", "how", "why", "who", "when", "is", "can", "should", "tell", "explain", "think", "which", "give", "share"))
-        )
 
-        if is_council_addressed or is_question_or_topic:
+        if is_council_addressed:
+            if not crypto_valid:
+                lead_bot = council.broadcaster.get_bot(council.agents_config[0].name) if council else None
+                if lead_bot:
+                    await safe_send_message(
+                        bot=lead_bot,
+                        chat_id=chat_id,
+                        text=(
+                            "🏛️ <b>Chatters Council Directive: Strictly Crypto Scope</b>\n\n"
+                            "The council communicates exclusively about cryptocurrency, Solana tokens, DEX liquidity, and trade execution.\n"
+                            "Please provide a token CA, $ticker, or crypto question."
+                        ),
+                        reply_to_id=update.message.message_id,
+                    )
+                return
+
             await council.run_debate(
                 prompt=clean_text,
                 chat_id=chat_id,
@@ -1413,6 +1515,7 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
+        # ELIMINATE RANDOM TALK: Silently ignore all other group conversation
         return
 
     # -----------------------------------------------------------------
@@ -1852,10 +1955,10 @@ async def post_init(application: Application):
 
     # Register bot commands menu in Telegram UI
     bot_commands = [
-        BotCommand("command", "Display simple AI Council command guide"),
-        BotCommand("deb", "Debate ANY topic (crypto, tech, AI, philosophy)"),
-        BotCommand("vot", "Debate & Vote on any question or proposition"),
-        BotCommand("exe", "Vote & Execute trade on Solana (Silent mode)"),
+        BotCommand("command", "Display simple Crypto Council command guide"),
+        BotCommand("deb", "Debate crypto tokens, market depth & liquidity"),
+        BotCommand("vot", "Debate & Vote on crypto trades with formal consensus"),
+        BotCommand("exe", "Silent background vote & buy on Solana"),
         BotCommand("dve", "Full Pipeline: Debate ➔ Vote ➔ Execute on Solana"),
         BotCommand("auto", "Autonomous trading & frequency (/auto 15m, 1h, 1w)"),
         BotCommand("positions", "View open token positions & live performance"),
