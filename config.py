@@ -238,6 +238,14 @@ AUTOPILOT_MIN_VOLUME_24H_USD: float = float(os.getenv("AUTOPILOT_MIN_VOLUME_24H_
 AUTOPILOT_MIN_1H_CHANGE: float = float(os.getenv("AUTOPILOT_MIN_1H_CHANGE", "1.0"))
 AUTOPILOT_MAX_FDV_USD: float = float(os.getenv("AUTOPILOT_MAX_FDV_USD", "25000000.0"))
 
+# Token Incubator & 2-Hour Seasoning Recheck System
+# Tracks early tokens that didn't immediately qualify and rechecks them internally after ~2 hours
+INCUBATOR_ENABLED: bool = os.getenv("INCUBATOR_ENABLED", "true").lower() in ("true", "1", "yes")
+INCUBATOR_MIN_AGE_SECONDS: int = int(os.getenv("INCUBATOR_MIN_AGE_SECONDS", "7200"))     # 2 hours (7200s) seasoning window
+INCUBATOR_MAX_AGE_SECONDS: int = int(os.getenv("INCUBATOR_MAX_AGE_SECONDS", "86400"))    # 24 hours max retention
+INCUBATOR_MAX_TRACKED: int = int(os.getenv("INCUBATOR_MAX_TRACKED", "250"))             # Max concurrent tokens incubating
+INCUBATOR_RECHECK_INTERVAL_SECONDS: int = int(os.getenv("INCUBATOR_RECHECK_INTERVAL_SECONDS", "900")) # Recheck every 15m after 2h
+
 
 # =============================================================================
 # 4. PERSONALITY & DEBATE POSTURE

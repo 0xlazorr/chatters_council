@@ -49,6 +49,7 @@ from executor import MSnifferExecutor, SignalExtractor, format_execution_announc
 from autopilot import autopilot
 from positions import position_manager
 from vault import profit_vault
+from incubator import token_incubator
 from context_manager import context_manager
 import telemetry
 
@@ -238,13 +239,16 @@ def build_main_menu_keyboard() -> InlineKeyboardMarkup:
     ]
     row2 = [
         InlineKeyboardButton("🤖 Autopilot Settings", callback_data="menu:auto"),
-        InlineKeyboardButton("💰 Wallet & Balance", callback_data="menu:wallet"),
+        InlineKeyboardButton("🧪 Token Incubator", callback_data="menu:incubator"),
     ]
     row3 = [
+        InlineKeyboardButton("💰 Trading Wallet", callback_data="menu:wallet"),
         InlineKeyboardButton("🛡️ Security & Audits", callback_data="menu:security"),
+    ]
+    row4 = [
         InlineKeyboardButton("🔄 Refresh Dashboard", callback_data="menu:refresh"),
     ]
-    return InlineKeyboardMarkup([row1, row2, row3])
+    return InlineKeyboardMarkup([row1, row2, row3, row4])
 
 
 async def format_main_dashboard() -> str:
@@ -267,6 +271,9 @@ async def format_main_dashboard() -> str:
     ap_status = "🟢 ACTIVE" if autopilot.is_running else "⚪ IDLE"
     ap_freq = autopilot.format_interval(autopilot.scan_interval_seconds)
 
+    incubating_count = len([t for t in token_incubator.tokens.values() if t.status == "INCUBATING"])
+    seasoned_count = len([t for t in token_incubator.tokens.values() if t.status == "INCUBATING" and t.is_seasoned])
+
     wallet_info = await MSnifferExecutor.get_wallet_status()
     sol_bal = wallet_info.get("sol_balance", 0.0)
 
@@ -275,6 +282,7 @@ async def format_main_dashboard() -> str:
         "───────────────────────────────\n"
         f"🎯 <b>Default Exit Mode:</b> <code>{strat_desc}</code>\n"
         f"🤖 <b>Autopilot Scanner:</b> <code>{ap_status} (Every {ap_freq})</code>\n"
+        f"🧪 <b>2h Incubator:</b> <code>{incubating_count} tracking ({seasoned_count} seasoned ≥2h)</code>\n"
         f"📈 <b>Active Holdings:</b> <code>{pos_count} Open Positions</code>\n"
         f"💰 <b>Trading Wallet:</b> <code>{sol_bal:.4f} SOL</code>\n"
         "───────────────────────────────\n"
@@ -329,6 +337,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/buy &lt;CA&gt;</code> - Deliberate & buy token (or paste CA)\n"
         "• <code>/sell &lt;CA&gt;</code> - Sell a token manually\n"
         "• <code>/auto</code> - Autopilot background scanner\n"
+        "• <code>/incubator</code> - 2-hour token seasoning queue & mature rechecks\n"
         "• <code>/wallet</code> - View trading wallet & live SOL balance\n"
         "• <code>/security</code> - View live security audit & hardening protections\n"
         "• <code>/cancel</code> - Cancel active session or autopilot"
@@ -357,6 +366,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 <b>Autopilot Loop:</b> <code>{'RUNNING 🟢' if autopilot.is_running else 'STOPPED ⚪'}</code>",
         f"📈 <b>Active Positions:</b> <code>{len(open_pos)} open</code> (Use /positions)",
         f"🏦 <b>USDT Profit Vault:</b> <code>${profit_vault.total_usdt_harvested:.2f} USDT</code> (Use /vault)",
+        f"🧪 <b>Token Incubator:</b> <code>{len([t for t in token_incubator.tokens.values() if t.status == 'INCUBATING'])} tracking</code> (Use /incubator)",
         f"💳 <b>Wallet SOL:</b> <code>{sol_bal:.4f} SOL</code> ({wallet_addr[:6]}...{wallet_addr[-4:] if len(wallet_addr) > 10 else ''})",
         f"📍 <b>Group Chat ID:</b> <code>{config.GROUP_CHAT_ID or chat_id}</code>",
         f"⚡ <b>Consensus Threshold:</b> <code>{config.CONSENSUS_THRESHOLD * 100:.0f}%</code>",
@@ -374,6 +384,24 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines.append("───────────────────────────────")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def incubator_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays 2-hour seasoned token queue and candidates currently incubating."""
+    chat_id = check_and_record_chat_id(update)
+    text = token_incubator.get_status_text()
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔄 Refresh", callback_data="menu:incubator"),
+            InlineKeyboardButton("🏛️ Main Menu", callback_data="menu:main"),
+        ]
+    ])
+    await update.message.reply_text(
+        text,
+        reply_markup=markup,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 async def wallet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1138,6 +1166,16 @@ async def execute_council_session(
         dossier = await telemetry.fetch_token_dossier(mint)
         if dossier and dossier.get("mint"):
             mint = dossier["mint"]
+            if config.INCUBATOR_ENABLED:
+                token_incubator.add_candidate(
+                    mint=mint,
+                    symbol=dossier.get("symbol", ""),
+                    name=dossier.get("name", ""),
+                    price_usd=float(dossier.get("price_usd") or 0.0),
+                    liquidity_usd=float(dossier.get("liquidity_usd") or 0.0),
+                    fdv_usd=float(dossier.get("market_cap_usd") or dossier.get("fdv") or 0.0),
+                    notes="Analyzed by council command",
+                )
 
     if dossier:
         tok_name = dossier.get("name", "Token")
@@ -1267,6 +1305,8 @@ async def execute_council_session(
                     text=vote_summary.summary_text,
                 )
             if vote_summary.consensus_passed:
+                if mint and config.INCUBATOR_ENABLED:
+                    token_incubator.mark_bought(mint)
                 exec_res = await MSnifferExecutor.execute_consensus(
                     prompt=prompt,
                     consensus_text=vote_summary.summary_text,
@@ -1292,6 +1332,8 @@ async def execute_council_session(
                 )
                 return exec_res.success
             else:
+                if mint and config.INCUBATOR_ENABLED:
+                    token_incubator.record_recheck(mint, notes="Council voted NO on /dve; queued for 2h re-evaluation")
                 if lead_bot:
                     safe_name = html.escape(tok_name)
                     safe_sym = html.escape(tok_symbol)
@@ -1323,6 +1365,8 @@ async def execute_council_session(
             vote_summary = await council.run_vote(prompt=enriched_prompt, chat_id=chat_id, reply_to_id=reply_to_id, silent=True)
 
             if vote_summary.consensus_passed:
+                if mint and config.INCUBATOR_ENABLED:
+                    token_incubator.mark_bought(mint)
                 exec_res = await MSnifferExecutor.execute_consensus(
                     prompt=prompt,
                     consensus_text=vote_summary.summary_text,
@@ -1377,6 +1421,8 @@ async def execute_council_session(
                 )
                 return exec_res.success
             else:
+                if mint and config.INCUBATOR_ENABLED:
+                    token_incubator.record_recheck(mint, notes="Council voted NO on /exe; queued for 2h re-evaluation")
                 safe_name = html.escape(tok_name)
                 safe_sym = html.escape(tok_symbol)
                 rejection_msg = (
@@ -1544,11 +1590,12 @@ def build_autopilot_keyboard(current_interval: int, is_running: bool) -> InlineK
     ]
     row3 = [
         InlineKeyboardButton(lbl(604800, "⏱️ 1 Week"), callback_data="setfreq:604800"),
-        InlineKeyboardButton("🔄 Refresh Status", callback_data="auto:refresh"),
+        InlineKeyboardButton("🧪 Token Incubator", callback_data="menu:incubator"),
     ]
     toggle_label = "🛑 Stop Autopilot" if is_running else "🟢 Start Autopilot"
     row4 = [
         InlineKeyboardButton(toggle_label, callback_data="auto:toggle"),
+        InlineKeyboardButton("🔄 Refresh Status", callback_data="auto:refresh"),
     ]
     return InlineKeyboardMarkup([row1, row2, row3, row4])
 
@@ -1564,6 +1611,7 @@ def format_autopilot_dashboard(stats: Dict[str, Any], wallet_sol: float) -> str:
         f"⚡ <b>Engine Status:</b> {st_badge}\n"
         f"⏱️ <b>Scan Frequency:</b> <code>Every {freq_desc}</code>\n"
         f"🔄 <b>Cycles Run:</b> <code>{stats['cycles']}</code>\n"
+        f"🧪 <b>2h Incubator Tracking:</b> <code>{stats.get('incubator_total', 0)} tokens ({stats.get('incubator_seasoned', 0)} seasoned ≥2h)</code>\n"
         f"🔍 <b>Breakouts Evaluated:</b> <code>{stats['evaluated_count']}</code>\n"
         f"✅ <b>Approved by Consensus:</b> <code>{stats['approved']}</code>\n"
         f"❌ <b>Rejected by Consensus:</b> <code>{stats['rejected']}</code>\n"
@@ -1990,6 +2038,16 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
     dossier = await telemetry.fetch_token_dossier(mint)
     if dossier:
+        if config.INCUBATOR_ENABLED and dossier.get("mint"):
+            token_incubator.add_candidate(
+                mint=dossier["mint"],
+                symbol=dossier.get("symbol", ""),
+                name=dossier.get("name", ""),
+                price_usd=float(dossier.get("price_usd") or 0.0),
+                liquidity_usd=float(dossier.get("liquidity_usd") or 0.0),
+                fdv_usd=float(dossier.get("market_cap_usd") or dossier.get("fdv") or 0.0),
+                notes="Pasted by user in group chat",
+            )
         card_text = telemetry.format_telegram_token_card(dossier, action="BUY", amount_sol=amount)
     else:
         dex_url = f"https://dexscreener.com/solana/{mint}"
@@ -2167,6 +2225,25 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             markup = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu:main")]])
             try:
                 await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+            return
+
+        elif choice == "incubator":
+            text = token_incubator.get_status_text()
+            markup = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🔄 Refresh", callback_data="menu:incubator"),
+                    InlineKeyboardButton("🔙 Back to Menu", callback_data="menu:main"),
+                ]
+            ])
+            try:
+                await query.edit_message_text(
+                    text=text,
+                    reply_markup=markup,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
             except Exception:
                 pass
             return
@@ -2692,6 +2769,7 @@ async def post_init(application: Application):
         BotCommand("sell", "🔴 Sell Token Position (/sell <CA>)"),
         BotCommand("auto", "🤖 Autopilot Scanner (/auto on|off)"),
         BotCommand("wallet", "💳 Trading Wallet & SOL Balance"),
+        BotCommand("incubator", "🧪 2-Hour Seasoning Queue & Mature Tokens"),
         BotCommand("security", "🛡️ Live Security Audit & Protection Status"),
         BotCommand("help", "📖 Simple 3-Step Guide"),
     ]
@@ -2745,6 +2823,7 @@ def main():
     application.add_handler(CommandHandler(["buy"], buy_command))
     application.add_handler(CommandHandler(["sell"], sell_command))
     application.add_handler(CommandHandler(["auto", "autopilot", "interval", "freq"], autopilot_command))
+    application.add_handler(CommandHandler(["incubator", "watchlist", "incubating", "seasoning"], incubator_command))
     application.add_handler(CommandHandler(["wallet", "bal", "balance"], wallet_command))
     application.add_handler(CommandHandler(["security", "audit", "safe"], security_command))
     application.add_handler(CommandHandler(["help", "command", "commands", "guide"], help_command))

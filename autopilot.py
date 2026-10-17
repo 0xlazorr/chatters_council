@@ -27,6 +27,7 @@ from executor import MSnifferExecutor, format_execution_announcement
 from positions import position_manager
 import telemetry
 from vault import profit_vault
+from incubator import token_incubator
 
 logger = logging.getLogger("multi_agent_council.autopilot")
 
@@ -189,6 +190,7 @@ def format_autonomous_buy_card(
     vote_summary,
     trade_amt: float,
     exec_res,
+    seasoning_hours: Optional[float] = None,
 ) -> str:
     """Formats full token details + execution details + why it won consensus paragraph."""
     name = html.escape(dossier.get("name", "Solana Token"))
@@ -219,6 +221,8 @@ def format_autonomous_buy_card(
 
     thesis_paragraph = generate_consensus_thesis_paragraph(dossier, vote_summary)
 
+    seasoned_line = f"🧪 <b>Seasoned Breakout:</b> <code>Incubated {seasoning_hours:.1f}h post-launch before buy</code>" if seasoning_hours is not None else ""
+
     lines = [
         f"🤖 <b>AUTOPILOT CONSENSUS EXECUTED: BOUGHT {name} (${symbol})</b>",
         "───────────────────────────────",
@@ -231,6 +235,11 @@ def format_autonomous_buy_card(
         f"👥 <b>24h Activity:</b> <code>{buys:,} buys / {sells:,} sells</code>",
         f"🛡️ <b>Security:</b> Mint: <code>{mint_auth}</code> | Freeze: <code>{freeze_auth}</code>",
         f"🐋 <b>Top 10 Supply:</b> <code>{top10:.1f}%</code>",
+    ]
+    if seasoned_line:
+        lines.append(seasoned_line)
+
+    lines.extend([
         "───────────────────────────────",
         f"🗳️ <b>Consensus:</b> <code>{vote_summary.yes_count}/{total_votes} YES ({approval_pct:.0f}%)</code>",
         f"⚡ <b>Trade Size:</b> <code>{trade_amt:.2f} SOL</code>",
@@ -240,7 +249,7 @@ def format_autonomous_buy_card(
         f"<i>{thesis_paragraph}</i>",
         "───────────────────────────────",
         f"🎯 <i>Autonomous position active: Auto-Exit (+{config.TAKE_PROFIT_PCT:.0f}% TP / -25% SL) & ${config.PROFIT_VAULT_THRESHOLD_USD:.0f} USDT Profit Vault enabled.</i>",
-    ]
+    ])
     return "\n".join(lines)
 
 
@@ -307,6 +316,8 @@ class AutopilotEngine:
         """Returns live statistics of the Autopilot engine."""
         uptime = time.time() - self.start_timestamp if self.is_running and self.start_timestamp else 0.0
         open_pos = position_manager.get_open_positions()
+        incubating = [t for t in token_incubator.tokens.values() if t.status == "INCUBATING"]
+        seasoned = [t for t in incubating if t.is_seasoned]
         return {
             "is_running": self.is_running,
             "uptime_seconds": uptime,
@@ -319,6 +330,8 @@ class AutopilotEngine:
             "total_usdt_vaulted": profit_vault.total_usdt_harvested,
             "scan_interval": self.scan_interval_seconds,
             "formatted_interval": format_interval(self.scan_interval_seconds),
+            "incubator_total": len(incubating),
+            "incubator_seasoned": len(seasoned),
         }
 
     async def start(
@@ -623,8 +636,12 @@ class AutopilotEngine:
                         break
 
                 # -------------------------------------------------------------
-                # 4. Background Screening: Find High-Conviction Breakout Candidate
+                # 3.5. Incubator Check: Recheck Seasoned Tokens (>= 2 Hours Old)
                 # -------------------------------------------------------------
+                qualified_target = None
+                is_from_incubator = False
+                seasoning_hours: Optional[float] = None
+
                 current_open = position_manager.get_open_positions()
                 if len(current_open) >= config.MAX_OPEN_POSITIONS:
                     logger.info(
@@ -639,22 +656,73 @@ class AutopilotEngine:
                     continue
 
                 open_mints = {p.mint for p in current_open}
-                raw_candidates = await self._fetch_trending_solana_mints()
 
-                qualified_target = None
-                for cand in raw_candidates:
-                    mint = cand["mint"]
-                    if mint in self.evaluated_mints or mint in open_mints:
-                        continue
-                    if len(self.evaluated_mints) > 1000:
-                        self.evaluated_mints = set(list(self.evaluated_mints)[-500:])
-                    self.evaluated_mints.add(mint)
+                if config.INCUBATOR_ENABLED:
+                    due_candidates = token_incubator.get_due_for_recheck()
+                    if due_candidates:
+                        logger.info(f"🧪 [Incubator Recheck] Evaluating {len(due_candidates)} seasoned candidates (>= {config.INCUBATOR_MIN_AGE_SECONDS/3600:.1f}h old)...")
+                        for s_cand in due_candidates:
+                            if s_cand.mint in open_mints:
+                                continue
+                            # 1. Fetch live pair telemetry
+                            s_raw = await self._enrich_candidate_raw(s_cand.mint)
+                            if not s_raw or s_raw.get("liquidity_usd", 0.0) < 2000.0:
+                                token_incubator.mark_dead(s_cand.mint, "Liquidity below $2k or pair dead after 2h seasoning")
+                                continue
 
-                    # Strict background filter: liquidity > $10k, vol > $25k, momentum > +1%
-                    enriched = await self._enrich_candidate(mint)
-                    if enriched:
-                        qualified_target = enriched
-                        break
+                            # 2. Check if token matured to meet breakout criteria
+                            s_enriched = await self._enrich_candidate(s_cand.mint)
+                            if s_enriched:
+                                logger.info(
+                                    f"🏆 [Incubator Seasoned Breakout] {s_cand.symbol} matured after {s_cand.age_hours:.1f}h! "
+                                    f"Liq=${s_enriched['liquidity_usd']:,.0f}, Vol=${s_enriched['volume_24h']:,.0f}. Queuing for Council vote!"
+                                )
+                                qualified_target = s_enriched
+                                is_from_incubator = True
+                                seasoning_hours = s_cand.age_hours
+                                break
+                            else:
+                                token_incubator.record_recheck(
+                                    s_cand.mint,
+                                    f"Checked at {s_cand.age_hours:.1f}h: Liq=${s_raw.get('liquidity_usd', 0.0):,.0f}, Vol=${s_raw.get('volume_24h', 0.0):,.0f}"
+                                )
+
+                # -------------------------------------------------------------
+                # 4. Background Screening: Find High-Conviction Breakout Candidate
+                # -------------------------------------------------------------
+                if not qualified_target:
+                    raw_candidates = await self._fetch_trending_solana_mints()
+
+                    for cand in raw_candidates:
+                        mint = cand["mint"]
+                        if mint in self.evaluated_mints or mint in open_mints:
+                            continue
+                        if len(self.evaluated_mints) > 1000:
+                            self.evaluated_mints = set(list(self.evaluated_mints)[-500:])
+                        self.evaluated_mints.add(mint)
+
+                        # Strict background filter: liquidity > $10k, vol > $25k, momentum > +1%
+                        enriched = await self._enrich_candidate(mint)
+                        if enriched:
+                            qualified_target = enriched
+                            is_from_incubator = False
+                            seasoning_hours = None
+                            break
+                        else:
+                            # Token caught early but didn't meet full breakout criteria yet:
+                            # Register in 2-Hour Incubator queue for internal seasoning recheck!
+                            if config.INCUBATOR_ENABLED:
+                                raw_telem = await self._enrich_candidate_raw(mint)
+                                if raw_telem and raw_telem.get("liquidity_usd", 0.0) >= 1500.0:
+                                    token_incubator.add_candidate(
+                                        mint=mint,
+                                        symbol=raw_telem.get("symbol", cand.get("symbol", "")),
+                                        name=raw_telem.get("name", cand.get("name", "")),
+                                        price_usd=raw_telem.get("price_usd", 0.0),
+                                        liquidity_usd=raw_telem.get("liquidity_usd", 0.0),
+                                        fdv_usd=raw_telem.get("fdv", 0.0),
+                                        notes="Caught early on DexScreener launch; queuing for 2h seasoning",
+                                    )
 
                 if not qualified_target:
                     logger.debug("No candidate met high-conviction criteria in this scan. Sleeping...")
@@ -680,17 +748,25 @@ class AutopilotEngine:
                 mcap = float(dossier.get("market_cap_usd") or qualified_target.get("fdv") or 0.0)
                 liq = float(dossier.get("liquidity_usd") or qualified_target.get("liquidity_usd") or 0.0)
 
+                if is_from_incubator and seasoning_hours is not None:
+                    user_context = (
+                        f"🧪 Token Incubator: This token was caught early at launch and has seasoned for {seasoning_hours:.1f} hours. "
+                        f"Liquidity deepened to ${liq:,.0f} and 24h volume held strong at ${dossier.get('volume_24h_usd', 0):,.0f}."
+                    )
+                else:
+                    user_context = "Autonomous Autopilot scan discovered high-conviction breakout pattern."
+
                 prompt = telemetry.format_council_prompt_from_dossier(
                     dossier=dossier,
                     action="BUY",
                     amount_sol=trade_amt,
-                    user_context="Autonomous Autopilot scan discovered high-conviction breakout pattern.",
+                    user_context=user_context,
                 )
 
                 # -------------------------------------------------------------
                 # 5. Silent Background Council Vote (No Group Chat Spam)
                 # -------------------------------------------------------------
-                logger.info(f"Autopilot evaluating {tok_name} (${tok_symbol}) in silent background mode...")
+                logger.info(f"Autopilot evaluating {tok_name} (${tok_symbol}) in silent background mode (from incubator: {is_from_incubator})...")
                 try:
                     vote_summary = await council.run_vote(prompt=prompt, chat_id=chat_id, silent=True)
                 except Exception as e:
@@ -720,6 +796,9 @@ class AutopilotEngine:
 
                     if exec_res.success:
                         self.trades_executed += 1
+                        if is_from_incubator:
+                            token_incubator.mark_bought(mint)
+
                         # Register active position for automatic exit & profit monitoring
                         position_manager.open_position(
                             mint=mint,
@@ -736,6 +815,7 @@ class AutopilotEngine:
                         vote_summary=vote_summary,
                         trade_amt=trade_amt,
                         exec_res=exec_res,
+                        seasoning_hours=seasoning_hours,
                     )
                     try:
                         await lead_bot.send_message(
@@ -752,6 +832,16 @@ class AutopilotEngine:
                         f"🛑 Autopilot proposal rejected by Council for {tok_name} (${tok_symbol}): "
                         f"{vote_summary.yes_count} YES / {vote_summary.no_count} NO. No trade executed."
                     )
+                    if config.INCUBATOR_ENABLED:
+                        token_incubator.add_candidate(
+                            mint=mint,
+                            symbol=tok_symbol,
+                            name=tok_name,
+                            price_usd=price,
+                            liquidity_usd=liq,
+                            fdv_usd=mcap,
+                            notes=f"Council rejected initially ({vote_summary.yes_count}/{vote_summary.total_votes} YES). Re-evaluating after 2h.",
+                        )
 
                 # -------------------------------------------------------------
                 # 7. Rest interval between council evaluations
