@@ -64,8 +64,8 @@ ADMIN_USER_IDS: List[int] = [
 LISTENER_BOT_INDEX: int = int(os.getenv("LISTENER_BOT_INDEX", "0"))
 
 # Maximum turns/rounds in Debate mode
-# (e.g., 2 rounds means each active bot speaks twice during the debate)
-DEBATE_MAX_ROUNDS: int = int(os.getenv("DEBATE_MAX_ROUNDS", "2"))
+# (1 round means each active bot speaks once: 5 concise perspectives total)
+DEBATE_MAX_ROUNDS: int = int(os.getenv("DEBATE_MAX_ROUNDS", "1"))
 
 # Minimum percentage of YES votes required to reach consensus (0.50 = 50% majority)
 CONSENSUS_THRESHOLD: float = float(os.getenv("CONSENSUS_THRESHOLD", "0.50"))

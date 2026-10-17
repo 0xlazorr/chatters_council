@@ -39,6 +39,8 @@ from autogen_core.models import (
     ModelCapabilities,
     ModelInfo,
     RequestUsage,
+    SystemMessage,
+    UserMessage,
 )
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 
@@ -81,20 +83,24 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
         is_voting = "VOTE:" in str(last_msg).upper() or "VOTING" in str(last_msg).upper() or "VOTE ON" in str(last_msg).upper()
 
         if is_voting:
-            # Deterministic sensible mock vote for testing
             vote_decision = "YES" if self.agent_name in ("Claude", "GPT", "Gemini") else "NO"
             content = (
-                f"[{self.agent_name} - {self.role}]\n"
-                f"I have reviewed the proposal based on current metrics and safety constraints. "
-                f"From my perspective as {self.role}, the risk/reward parameters appear viable.\n\n"
+                f"I have scrutinized the proposition from my perspective as {self.role}. "
+                f"The structural risk/reward dynamics appear sound based on the available parameters.\n\n"
                 f"VOTE: {vote_decision}"
             )
         else:
-            content = (
-                f"[{self.agent_name} - {self.role}]\n"
-                f"Analyzing the proposition from the lens of {self.role}. "
-                f"We must weigh liquidity lockup stability against volume breakout velocity before committing capital."
-            )
+            is_crypto = any(term in str(last_msg).lower() for term in ("sol", "token", "liquidity", "swap", "raydium", "pump.fun", "dex", "mint"))
+            if is_crypto:
+                content = (
+                    f"Analyzing this asset from the lens of {self.role}. "
+                    f"We must weigh liquidity lockup stability against volume breakout velocity before committing capital."
+                )
+            else:
+                content = (
+                    f"Examining this from the perspective of {self.role}. "
+                    f"The critical consideration lies in foundational assumptions, long-term scalability, and structural viability."
+                )
 
         return CreateResult(
             finish_reason="stop",
@@ -244,8 +250,8 @@ def create_model_client(agent: config.AgentConfig) -> ChatCompletionClient:
             model=agent.model,
             base_url=config.OPENROUTER_BASE_URL,
             api_key=config.OPENROUTER_API_KEY,
-            model_info=ModelInfo(vision=False, function_calling=False, json_output=False, structured_output=False, family="unknown", max_tokens=1000),
-            max_tokens=1000,
+            model_info=ModelInfo(vision=False, function_calling=False, json_output=False, structured_output=False, family="unknown", max_tokens=250),
+            max_tokens=250,
             default_headers={
                 "HTTP-Referer": "https://telegram.org",
                 "X-Title": "Chatters AI Council",
@@ -627,6 +633,35 @@ class CouncilOrchestrator:
             autogen_agents.append(agent_inst)
         return autogen_agents
 
+    async def run_single_agent_reply(
+        self, agent_name: str, prompt: str, chat_id: int, reply_to_id: Optional[int] = None
+    ) -> bool:
+        """Generates and broadcasts a direct, conversational response from a specific council bot."""
+        cfg = config.get_agent_by_id(agent_name)
+        if not cfg:
+            return False
+
+        client = create_model_client(cfg)
+        sys_msg = self._build_system_message(cfg, mode="debate")
+        messages = [
+            SystemMessage(content=sys_msg),
+            UserMessage(content=prompt, source="user"),
+        ]
+        try:
+            res = await client.create(messages=messages)
+            content = res.content.strip() if hasattr(res, "content") else str(res).strip()
+            if content:
+                await self.broadcaster.broadcast_message(
+                    agent_name=cfg.name,
+                    chat_id=chat_id,
+                    text=content,
+                    reply_to_message_id=reply_to_id,
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Error in single agent reply for {agent_name}: {e}")
+        return False
+
     async def run_debate(
         self, prompt: str, chat_id: int, reply_to_id: Optional[int] = None, silent: bool = False
     ) -> bool:
@@ -646,9 +681,9 @@ class CouncilOrchestrator:
             )
 
             debate_task = (
-                f"Council Debate Proposition: {prompt}\n"
-                f"Engage in a sharp, multi-perspective debate. Address liquidity, market dynamics, "
-                f"security audits, and risk vs reward. Challenge each other's arguments."
+                f"Discussion Topic / Proposition: {prompt}\n"
+                f"Provide your concise, unique perspective (2-3 sentences) from your domain persona. "
+                f"Directly challenge or build upon points raised by other council members."
             )
 
             try:

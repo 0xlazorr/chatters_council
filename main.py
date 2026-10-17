@@ -836,23 +836,9 @@ async def execute_council_session(
                     await safe_send_message(
                         bot=lead_bot,
                         chat_id=chat_id,
-                        text=(
-                            f"🎙️ <b>AI COUNCIL DEBATE COMMENCING</b>\n"
-                            f"───────────────────────────────\n"
-                            f"📌 <b>Topic:</b> <i>{html.escape(prompt)}</i>\n"
-                            f"👥 <b>Debaters:</b> Claude, GPT, DeepSeek, Gemini, Grok\n"
-                            f"───────────────────────────────"
-                        ),
+                        text=f"🎙️ <b>Topic:</b> <i>{html.escape(prompt)}</i>",
                     )
             success = await council.run_debate(prompt=enriched_prompt, chat_id=chat_id, reply_to_id=reply_to_id, silent=False)
-            if success and lead_bot:
-                if dossier:
-                    safe_name = html.escape(tok_name)
-                    safe_sym = html.escape(tok_symbol)
-                    concl_msg = f"🏁 <b>Debate Concluded on {safe_name} (${safe_sym}).</b> To vote, use <code>/vot {mint}</code> or <code>/exe</code>."
-                else:
-                    concl_msg = f"🏁 <b>Council Debate Concluded.</b> To cast formal votes, use <code>/vot {html.escape(prompt)}</code>."
-                await safe_send_message(bot=lead_bot, chat_id=chat_id, text=concl_msg)
             return success
 
         # -------------------------------------------------------------
@@ -1307,45 +1293,84 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not mint and update.message.reply_to_message and update.message.reply_to_message.text:
         mint, action, amount, symbol = SignalExtractor.extract(update.message.reply_to_message.text)
 
-    # If still no CA, check if the user is addressing the council or mentioning any bot
+    # -----------------------------------------------------------------
+    # REGULAR TALKING CONVERSATIONS (NO CA DETECTED)
+    # -----------------------------------------------------------------
     if not mint:
-        bot_handles = (
-            "@claudetalkbbot", "@gpttalkbbot", "@deepseektalkbbot",
-            "@geminitalkbbot", "@groktalkbbot", "@council", "council:", "chatters:"
-        )
-        is_addressed = any(h in text.lower() for h in bot_handles)
-        is_reply_to_bot = bool(
-            update.message.reply_to_message
-            and update.message.reply_to_message.from_user
-            and update.message.reply_to_message.from_user.is_bot
-        )
-        if is_addressed or is_reply_to_bot:
-            auth, reason = is_authorized_admin(update)
-            if not auth:
-                await update.message.reply_text(f"⛔ {reason}")
-                return
+        is_private = bool(update.effective_chat and update.effective_chat.type == "private")
+        lower_text = text.lower()
 
-            clean_text = text
-            for h in ("@claudetalkbbot", "@gpttalkbbot", "@deepseektalkbbot", "@geminitalkbbot", "@groktalkbbot", "@council"):
-                clean_text = re.sub(re.escape(h), "", clean_text, flags=re.IGNORECASE).strip()
-            clean_text = re.sub(r"^(?:council|chatters):\s*", "", clean_text, flags=re.IGNORECASE).strip()
+        # 1. Detect if a specific bot was addressed
+        target_agent = None
+        for agent_cfg in config.get_active_agents():
+            handles = [
+                f"@{agent_cfg.username.lower()}",
+                f"{agent_cfg.name.lower()},",
+                f"{agent_cfg.name.lower()}:",
+                f"hey {agent_cfg.name.lower()}",
+            ]
+            if any(h in lower_text for h in handles):
+                target_agent = agent_cfg.name
+                break
 
-            if clean_text:
-                await execute_council_session(
-                    chat_id=chat_id,
-                    prompt=clean_text,
-                    mode="debate",
-                    reply_to_id=update.message.message_id,
-                )
+        # 2. Check if message is replying to a specific bot message
+        if not target_agent and update.message.reply_to_message and update.message.reply_to_message.from_user:
+            rep_user = update.message.reply_to_message.from_user
+            if rep_user.is_bot:
+                for agent_cfg in config.get_active_agents():
+                    if rep_user.username and rep_user.username.lower() == agent_cfg.username.lower():
+                        target_agent = agent_cfg.name
+                        break
+                    elif rep_user.first_name and agent_cfg.name.lower() in rep_user.first_name.lower():
+                        target_agent = agent_cfg.name
+                        break
+
+        # 3. Clean message prompt
+        clean_text = text
+        for h in ("@claudetalkbbot", "@gpttalkbbot", "@deepseektalkbbot", "@geminitalkbbot", "@groktalkbbot", "@council", "@chatters"):
+            clean_text = re.sub(re.escape(h), "", clean_text, flags=re.IGNORECASE).strip()
+        clean_text = re.sub(r"^(?:council|chatters|claude|gpt|deepseek|gemini|grok):\s*", "", clean_text, flags=re.IGNORECASE).strip()
+
+        if not clean_text:
+            return
+
+        # Case A: Private DM or addressed to a specific bot -> direct, conversational reply!
+        if is_private or target_agent:
+            agent_to_respond = target_agent or "Claude"
+            await council.run_single_agent_reply(
+                agent_name=agent_to_respond,
+                prompt=clean_text,
+                chat_id=chat_id,
+                reply_to_id=update.message.message_id,
+            )
+            return
+
+        # Case B: In group chat, if addressed to council or question/discussion topic -> council converses!
+        council_triggers = (
+            "@council", "council", "chatters", "everyone", "guys", "bots", "all"
+        )
+        is_council_addressed = any(t in lower_text for t in council_triggers)
+        is_question_or_topic = (
+            "?" in text
+            or len(clean_text.split()) >= 3
+            or any(lower_text.startswith(w) for w in ("what", "how", "why", "who", "when", "is", "can", "should", "tell", "explain", "think", "which", "give", "share"))
+        )
+
+        if is_council_addressed or is_question_or_topic:
+            await council.run_debate(
+                prompt=clean_text,
+                chat_id=chat_id,
+                reply_to_id=update.message.message_id,
+                silent=False,
+            )
+            return
+
         return
 
-    # 2. Check authorization
-    auth, reason = is_authorized_admin(update)
-    if not auth:
-        logger.debug(f"Non-admin posted CA {mint}; ignoring or unauthorized.")
-        return
-
-    # 3. Parse flags
+    # -----------------------------------------------------------------
+    # SOLANA TOKEN ACTIONS (CA DETECTED)
+    # -----------------------------------------------------------------
+    # Parse flags
     mode = None
     if re.search(r"(?:^|\s)(?:--?dve)\b", text, re.IGNORECASE):
         mode = "dve"
