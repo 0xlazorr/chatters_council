@@ -204,13 +204,13 @@ SOL_MINT: str = "So11111111111111111111111111111111111111112"
 USDT_SOLANA_MINT: str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
 # Position Exit & Profit-Taking Targets
-DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "AUTO_EXIT").strip().upper()
-if DEFAULT_EXIT_STRATEGY not in ("AUTO_EXIT", "HOLD_INDEFINITE"):
-    DEFAULT_EXIT_STRATEGY = "AUTO_EXIT"
+DEFAULT_EXIT_STRATEGY: str = os.getenv("DEFAULT_EXIT_STRATEGY", "TRAILING_RUNNER").strip().upper()
+if DEFAULT_EXIT_STRATEGY not in ("TRAILING_RUNNER", "AUTO_EXIT", "HOLD_INDEFINITE"):
+    DEFAULT_EXIT_STRATEGY = "TRAILING_RUNNER"
 
-TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "50.0"))  # Exit at +50% gain
-STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Cut loss at -25%
-TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "15.0"))  # Retrace 15% from peak after profit
+TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "50.0"))  # Threshold where trailing profit lock activates
+STOP_LOSS_PCT: float = float(os.getenv("STOP_LOSS_PCT", "25.0"))      # Hard stop-loss limit
+TRAILING_STOP_PCT: float = float(os.getenv("TRAILING_STOP_PCT", "15.0"))  # Retrace from peak required to exit winner
 
 # Profit Vault Sweeper (One-way ratchet: sweeps profits to USDT; NEVER converts USDT back to SOL)
 PROFIT_VAULT_ENABLED: bool = os.getenv("PROFIT_VAULT_ENABLED", "true").lower() in ("true", "1", "yes")
@@ -218,9 +218,9 @@ PROFIT_VAULT_THRESHOLD_USD: float = float(os.getenv("PROFIT_VAULT_THRESHOLD_USD"
 ALLOWED_VAULT_THRESHOLDS: List[float] = [10.0, 25.0, 50.0, 100.0, 250.0]
 PROFIT_VAULT_RESERVE_SOL: float = float(os.getenv("PROFIT_VAULT_RESERVE_SOL", "0.10"))
 
-# Autonomous Background Screening Filters (Only high-conviction breakout tokens reach the Council)
-AUTOPILOT_MIN_LIQUIDITY_USD: float = float(os.getenv("AUTOPILOT_MIN_LIQUIDITY_USD", "10000.0"))
-AUTOPILOT_MIN_VOLUME_24H_USD: float = float(os.getenv("AUTOPILOT_MIN_VOLUME_24H_USD", "25000.0"))
+# Autonomous Background Screening Filters (Optimized to catch early breakouts at $30k-$80k mcap)
+AUTOPILOT_MIN_LIQUIDITY_USD: float = float(os.getenv("AUTOPILOT_MIN_LIQUIDITY_USD", "6000.0"))
+AUTOPILOT_MIN_VOLUME_24H_USD: float = float(os.getenv("AUTOPILOT_MIN_VOLUME_24H_USD", "15000.0"))
 AUTOPILOT_MIN_1H_CHANGE: float = float(os.getenv("AUTOPILOT_MIN_1H_CHANGE", "1.0"))
 AUTOPILOT_MAX_FDV_USD: float = float(os.getenv("AUTOPILOT_MAX_FDV_USD", "25000000.0"))
 

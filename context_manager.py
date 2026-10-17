@@ -21,6 +21,7 @@ CONTEXT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", 
 
 PRESETS: Dict[str, str] = {
     "DEFAULT": "Balanced evaluation. Vote YES on secure tokens with verified liquidity, low rug risk, and positive volume.",
+    "RUNNER": "Breakout runner hunter. Mandatory: mint and freeze authorities must be REVOKED. Allow early supply concentration up to 85% if buy volume is accelerating and liquidity > $6,000. Ride early runners like TRUMP while strictly rejecting honeypots.",
     "CONSERVATIVE": "Capital preservation. Strict NO on any token with rug score > 150, top 10 holders > 25%, or liquidity < $30,000. Prioritize safety over hype.",
     "AGGRESSIVE": "Momentum scalping. Allow early tokens with liquidity down to $5,000 if 5m/1h volume is surging and buy ratio > 65%. Accept volatility for high breakout velocity.",
     "MEMECOIN": "Viral narrative hunter. Prioritize breakout velocity and community hype. Ensure mint/freeze authority is revoked, but allow high price swings.",
@@ -126,6 +127,7 @@ class ContextManager:
             f"• Type <code>/context &lt;instructions&gt;</code> to set any custom rules.\n"
             f"  <i>Example: <code>/context Market is dumping. Strict NO if liquidity &lt; $50k or top 10 &gt; 20%.</code></i>\n"
             f"• Tap a preset button below for 1-click strategy switching:\n"
+            f"  - <b>Runner:</b> Catch 5x-50x breakouts like TRUMP, allow early distribution if authorities revoked\n"
             f"  - <b>Conservative:</b> Strict capital defense, low rug score, low concentration\n"
             f"  - <b>Aggressive:</b> Scalp early momentum, accept higher risk for speed\n"
             f"  - <b>Memecoin:</b> Focus on viral hype, volume velocity, and breakout momentum\n"
@@ -140,14 +142,15 @@ class ContextManager:
             return f"{label} ✅" if curr == name else label
 
         row1 = [
+            InlineKeyboardButton(mark("RUNNER", "🏃 Runner (TRUMP)"), callback_data="ctx:runner"),
             InlineKeyboardButton(mark("CONSERVATIVE", "🛡️ Conservative"), callback_data="ctx:conservative"),
-            InlineKeyboardButton(mark("AGGRESSIVE", "⚡ Aggressive"), callback_data="ctx:aggressive"),
         ]
         row2 = [
+            InlineKeyboardButton(mark("AGGRESSIVE", "⚡ Aggressive"), callback_data="ctx:aggressive"),
             InlineKeyboardButton(mark("MEMECOIN", "🚀 Memecoin"), callback_data="ctx:memecoin"),
-            InlineKeyboardButton(mark("DEFAULT", "🔄 Reset Default"), callback_data="ctx:default"),
         ]
         row3 = [
+            InlineKeyboardButton(mark("DEFAULT", "🔄 Default"), callback_data="ctx:default"),
             InlineKeyboardButton("🔄 Refresh Context", callback_data="ctx:refresh"),
         ]
         return InlineKeyboardMarkup([row1, row2, row3])

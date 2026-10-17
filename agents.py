@@ -224,11 +224,38 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
         idx = (turn + {"Claude": 0, "GPT": 1, "DeepSeek": 2, "Gemini": 3, "Grok": 4}.get(self.agent_name, 0)) % 4
 
         # ---------------------------------------------------------------------
-        # A. VOTING MODE (Grounded in real on-chain thresholds)
+        # A. VOTING MODE (Grounded in real on-chain thresholds & directives)
         # ---------------------------------------------------------------------
         if is_voting:
-            if self.agent_name == "Claude":
-                is_safe = rug_score < 400 and (liq_num > 0 or not has_token)
+            is_runner_mode = any(
+                k in data["full_text"].lower()
+                for k in ("runner", "breakout runner", "allow early", "aggressive", "memecoin")
+            )
+            mint_revoked = data["mint_revoked"]
+            freeze_revoked = data["freeze_revoked"]
+            has_mint_flag = "Mint Auth:" in data["full_text"]
+            has_freeze_flag = "Freeze Auth:" in data["full_text"]
+
+            # Universal Hard Security Veto: Active Mint or Freeze Authorities are non-negotiable death traps
+            is_unrevoked_trap = (has_mint_flag and not mint_revoked) or (has_freeze_flag and not freeze_revoked)
+
+            if is_unrevoked_trap:
+                if self.agent_name == "Claude":
+                    content = f"Fatal contract vulnerability on {name} (${sym}): Mint or freeze authorities are active. Dev can dump infinite supply or freeze balances.\n\nVOTE: NO"
+                elif self.agent_name == "GPT":
+                    content = f"Market structure invalid on {name} (${sym}): Active contract authorities allow unbounded supply dilution and pool drainage.\n\nVOTE: NO"
+                elif self.agent_name == "DeepSeek":
+                    content = f"Unbounded supply hazard on {name} (${sym}): Active mint authority invalidates mathematical EV modeling. Expected value is negative.\n\nVOTE: NO"
+                elif self.agent_name == "Gemini":
+                    content = f"Fatal exploit risk: Active contract authorities on {name} (${sym}) kill narrative credibility and community trust.\n\nVOTE: NO"
+                else:  # Grok
+                    content = f"Blatant honeypot setup on {name} (${sym}): Unrevoked mint/freeze keys. Dev is waiting to print and dump. HARD PASS.\n\nVOTE: NO"
+            elif self.agent_name == "Claude":
+                if is_runner_mode and mint_revoked and freeze_revoked and liq_num >= 5000:
+                    is_safe = True
+                else:
+                    is_safe = rug_score < 400 and (liq_num > 0 or not has_token)
+
                 if not is_safe:
                     content = (
                         f"Smart contract flags on {name} (${sym}): Rug score is critical ({rug_score}) "
@@ -241,7 +268,8 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
                     )
 
             elif self.agent_name == "GPT":
-                is_safe = liq_num >= 10000 or (not has_token and liq_num > 0)
+                min_liq = 5000 if is_runner_mode else 10000
+                is_safe = liq_num >= min_liq or (not has_token and liq_num > 0)
                 if not is_safe:
                     content = (
                         f"Liquidity pool depth on {name} (${sym}) is severely constrained ({liq}), "
@@ -254,7 +282,8 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
                     )
 
             elif self.agent_name == "DeepSeek":
-                is_safe = vol_num >= 15000 and (liq_num > 0 or not has_token)
+                min_vol = 10000 if is_runner_mode else 15000
+                is_safe = vol_num >= min_vol and (liq_num > 0 or not has_token)
                 if not is_safe:
                     content = (
                         f"Quantitative metrics on {name} (${sym}) show deficient volume ({vol}) "
@@ -267,7 +296,8 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
                     )
 
             elif self.agent_name == "Gemini":
-                is_safe = vol_num >= 10000 and (liq_num > 0 or not has_token)
+                min_vol = 5000 if is_runner_mode else 10000
+                is_safe = vol_num >= min_vol and (liq_num > 0 or not has_token)
                 if not is_safe:
                     content = (
                         f"Adoption velocity on {name} (${sym}) is dormant with zero trading volume "
@@ -280,17 +310,24 @@ class SimulatedCouncilModelClient(ChatCompletionClient):
                     )
 
             else:  # Grok
-                is_safe = top10_num <= 50.0 and (liq_num > 0 or not has_token)
+                max_top10 = 89.0 if (is_runner_mode and mint_revoked and freeze_revoked) else 50.0
+                is_safe = top10_num <= max_top10 and (liq_num > 0 or not has_token)
                 if not is_safe:
                     content = (
                         f"Predatory holder concentration on {name} (${sym}): top 10 wallets control {top10} "
                         f"of supply. High probability of insider dump.\n\nVOTE: NO"
                     )
                 else:
-                    content = (
-                        f"Holder spread on {name} (${sym}) is within safe PvP parameters ({top10} in top 10). "
-                        f"Low insider dump wall risk.\n\nVOTE: YES"
-                    )
+                    if is_runner_mode and top10_num > 50.0:
+                        content = (
+                            f"Early runner dynamics on {name} (${sym}): Top 10 control {top10}, but mint/freeze are revoked "
+                            f"and volume is accelerating. Sizing with disciplined trailing stop.\n\nVOTE: YES"
+                        )
+                    else:
+                        content = (
+                            f"Holder spread on {name} (${sym}) is within safe PvP parameters ({top10} in top 10). "
+                            f"Low insider dump wall risk.\n\nVOTE: YES"
+                        )
 
         # ---------------------------------------------------------------------
         # B. DEBATE / ANALYSIS MODE (Bespoke crypto voice per bot)
